@@ -62,6 +62,7 @@ int connect_to_server(char *server_name, int port, User_t *user_ptr)
 
     user_ptr->server_address = &serverAddr;
     user_ptr->address_size = sizeof(serverAddr);
+    user_ptr->connectionFd = sockFd;
 
     return sockFd;
 }
@@ -137,8 +138,7 @@ int send_data(User_t* user, char* data) {
     return 0;
 }
 
-void send_message(int channel, User_t* user, char *message)
-{
+void send_message(int channel, User_t* user, char *message) {
 
 }
 
@@ -153,8 +153,8 @@ void sigin_handler(int sig) {
 
 void quit(User_t* user) {
     printf("\nBye\n");
-    send_data(user, "CLOSE");
-    shutdown(user->connectionFd, 2);
+    char buffer[10];
+    send(user->connectionFd, "CLOSE", BUFFER_SIZE, 0);
     close(user->connectionFd);
     exit(0);
 }
@@ -247,9 +247,6 @@ void user_input(User_t *user_ptr)
         else if (strcasecmp(com, "BYE") == 0) {
             quit(user_ptr);
         }
-        else if (strcasecmp("^C", com) == 0) {
-            quit(user_ptr);
-        }
         else if (strcasecmp(com, "TEST") == 0) {
             send_data(user_ptr, "test data");
         }
@@ -273,7 +270,7 @@ int main(int argc, char **argv)
     char *serverName = argv[1];
     User_t user;
 
-    user.connectionFd = connect_to_server(serverName, port, &user);
+    connect_to_server(serverName, port, &user);
     send_data(&user, "test");
     user_input(&user);
     quit(&user);

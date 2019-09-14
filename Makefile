@@ -6,7 +6,7 @@ clientObjects = util.o
 all: server client 
 
 server: util.o server.c
-	${CC} $@.c ${serverObjects} -o $@
+	${CC} $@.c -g ${serverObjects} -o $@
 
 client: util.o client.c
 	${CC} $@.c -g ${clientObjects} -o $@
