@@ -15,9 +15,12 @@
 #include <fcntl.h>           /* For O_* constants */
 
 
+
 #define BUFFER_SIZE 32
 int PARENT_ID;
 int LISTENFD;
+
+pid_t connection_id[256] = {0};
 
 int socket_init(int port) {
     struct sockaddr_in serverAddr;
@@ -83,7 +86,28 @@ void chat_listen(int connectFd) {
     }
 }
 
+void add_child(pid_t pid) {
+    for (int i = 0; i < 256; ++i) {
+        if (connection_id[i] != 0) {
+            connection_id[i] = pid;
+            return;
+        }
+    }
+    return;
+}
+
+void remove_child(pid_t pid) {
+    for (int i = 0; i < 256; ++i) {
+        if (connection_id[i] == pid) {
+            connection_id[i] = 0;
+            return;
+        }
+    }
+}
+
+
 void incoming_connections(int listenFd) {
+    pid_t pid;
     a:
     printf("Waiting for another connection\n");
     int connectFd = accept(listenFd, NULL, NULL);
@@ -95,15 +119,27 @@ void incoming_connections(int listenFd) {
     send(connectFd, "connected", BUFFER_SIZE, 0);
     send(connectFd, "6", 8, 0);
 
-
-    if (fork() != 0) {
+    pid = fork();
+    if (pid != 0) {
+        add_child(pid);
         close(connectFd);
         goto a;
     } else {
         chat_listen(connectFd);
     }
     
-} 
+}
+
+
+void kill_children() {
+    pid_t pid;
+    for (int i = 0; i < 256; ++i) {
+        pid = connection_id[i];
+        if (pid) {
+            kill(pid, SIGINT);
+        }
+    }
+}
 
 void chat_shutdown() {
     printf("bye\n");
