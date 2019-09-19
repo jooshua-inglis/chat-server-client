@@ -1,5 +1,5 @@
 CC = c99
-CFLAGS = -Wall -lrt -g
+CFLAGS = -lrt -g
 
 all: server client 
 

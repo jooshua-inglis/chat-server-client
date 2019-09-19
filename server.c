@@ -14,11 +14,82 @@
 #include <fcntl.h>           /* For O_* constants */
 #include <stdbool.h>
 
-
 #define BUFFER_SIZE 32
 #define MAX_USES  256
 
 int LISTENFD;
+
+// ===========================================================================
+//                                   CHAT LOG 
+// ===========================================================================
+
+typedef struct message {
+    int client_id;
+    int channel;
+    char* message; 
+} Message_t;
+
+typedef struct node Node_t;
+
+struct node {
+    Message_t *message;
+    Node_t *next;
+};
+
+#define SHARED_CHAT_NAME "CHAT"
+#define MAX_CHANNELS 256
+Node_t** channels;
+int chat_mem;
+
+void channel_memory_init() {
+    chat_mem = shm_open(SHARED_CHAT_NAME, O_CREAT | O_RDWR, 0666);
+    ftruncate(chat_mem, 256 * sizeof(Node_t**));
+    channels = mmap(0, MAX_USES * sizeof(int), PROT_WRITE, MAP_SHARED, chat_mem, 0);
+}
+
+void channels_init() {
+    for (int i = 0; i < MAX_CHANNELS; ++i) {
+        channels[i] = NULL;
+    }
+}
+
+void channel_close(Node_t *node) {
+    if (node = NULL) return;
+    
+    for (; node != NULL; node = node->next) { free(node); }
+} 
+
+void channels_close_all() {
+    for (int i = 0; i < MAX_CHANNELS; ++i) {
+        channel_close(channels[i]);
+    }
+}
+
+void message_print(Message_t *message) {
+    printf("#%d: %s\n", message->client_id, message->message);
+}
+
+void channel_print(int channel) {
+    Node_t* head = channels[channel];
+    for ( ; head != NULL; head = head->next) {
+        message_print(head->message);
+    }
+}
+
+Node_t * message_put(Node_t *head, Message_t *message) {
+    if (head == NULL) {
+        head = malloc(sizeof(Node_t));
+        head->next = NULL;
+        head->message = message;
+        return head;
+    }
+
+    Node_t *node = malloc(sizeof(Node_t));
+
+    node->next = head;
+    node->message = message;
+    return node;
+}
 
 
 // ===========================================================================
@@ -41,10 +112,6 @@ void shared_memory_init() {
     processes_mem = shm_open(SHARED_PRCOESS_NAME, O_CREAT | O_RDWR, 0666);
     ftruncate(processes_mem, MAX_USES * sizeof(int));
     clients = mmap(0, MAX_USES * sizeof(int), PROT_WRITE, MAP_SHARED, processes_mem, 0);
-}
-
-void shared_memory_close() {
-    unlink(SHARED_PRCOESS_NAME);
 }
 
 void client_init() {
@@ -77,6 +144,15 @@ void client_close_all() {
         }
     }
 }
+
+int add_message(int channel, char * message, Client_t * client) {
+    Message_t* m = malloc(sizeof(Message_t));
+    m->channel = channel;
+    m->client_id = client->client_id;
+    m->message = message;
+    channels[channel] = message_put(channels[channel], m);
+}
+
 
 
 // ===========================================================================
@@ -112,7 +188,6 @@ int socket_init(int port) {
     return listenFd;
 }
 
-
 void chat_listen(int connectFd, Client_t *client) {
     char buffer[BUFFER_SIZE];
 
@@ -120,11 +195,14 @@ void chat_listen(int connectFd, Client_t *client) {
         recv(client->connectionFd, buffer, BUFFER_SIZE, MSG_CONFIRM);
         printf("Received \"%s\" from client!\n", buffer);
         
+        add_message(0, buffer, client);
+
         if (strcmp("CLOSE", buffer) == 0) {
             printf("Closing Process for user\n");
             client_close(client);
             return;
         }
+        channel_print(0);
         sprintf(buffer, "SUCCESS");
         send(client->connectionFd, buffer, BUFFER_SIZE, 0);
     }
@@ -169,11 +247,36 @@ void incoming_connections(int listenFd) {
     }
 }
 
+void incoming_connections_single_process(int listenFd) {
+    pid_t pid;
+
+    Client_t client;
+    a:
+    printf("Waiting for another connection\n");
+    int connectFd = accept(listenFd, NULL, NULL);
+
+    if (connectFd == -1) {
+        fprintf(stderr, "Failed to accept connection\n");
+    }
+
+    char buffer[2];
+    sprintf(buffer, "%d", 0);
+    send(connectFd, buffer, BUFFER_SIZE, 0);
+
+    client.client_id = 0;
+    client.connectionFd = connectFd;
+    client.free = 0;
+    client.pid = getpid();
+
+    chat_listen(connectFd, &client);
+}
+
 void chat_shutdown() {
     printf("bye\n");
     close(LISTENFD);
     client_close_all();
-    shared_memory_close();
+    unlink(SHARED_PRCOESS_NAME);
+    unlink(SHARED_CHAT_NAME);
     exit(0);
 }
 
@@ -181,7 +284,9 @@ void chat_shutdown() {
 int main(int argc, char const *argv[])
 {
     shared_memory_init();
+    channel_memory_init();
     client_init();
+    channels_init();
     signal(SIGINT, chat_shutdown);
     if (argc != 2) {
         printf("server takes in 1 inputs, you have %d\n", argc);
@@ -194,6 +299,7 @@ int main(int argc, char const *argv[])
     int listenFd = socket_init(port);
 
     LISTENFD = listenFd;
-    incoming_connections(listenFd);
+    incoming_connections_single_process(listenFd);
+    // incoming_connections(listenFd);
     return 0;
 }
