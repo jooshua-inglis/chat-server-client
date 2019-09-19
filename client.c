@@ -48,18 +48,20 @@ int connect_to_server(char *server_name, int port, User_t *user_ptr)
     }
 
     char buffer[BUFFER_SIZE];
-    char id[8];
-    printf("Getting confimation and ");
+    printf("Getting confimation");
     recv(sockFd, buffer, BUFFER_SIZE, 0);
-    printf("id");
-    recv(sockFd, id, 8, 0);
     printf(" done\n");
 
-    printf("%s\n", buffer);
-    if (strcmp(buffer, "connected") == 0) {
-        printf("Connected to server\nYour id is %s\n", id);
+    if (strcmp(buffer, "SERVER FULL") == 0) {
+        printf("Server full");
+        close(sockFd);
+        exit(1);
     }
 
+    
+    printf("Connected to server\nYour id is %s\n", buffer);
+    
+    user_ptr->client_id = atoi(buffer);
     user_ptr->server_address = &serverAddr;
     user_ptr->address_size = sizeof(serverAddr);
     user_ptr->connectionFd = sockFd;

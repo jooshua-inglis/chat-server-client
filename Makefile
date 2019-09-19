@@ -1,15 +1,15 @@
 CC = c99
-CFLAGS = -Wall
+CFLAGS = -Wall -lrt -g
 serverObjects = util.o
 clientObjects = util.o 
 
 all: server client 
 
 server: util.o server.c
-	${CC} $@.c -g ${serverObjects} -o $@
+	${CC} $@.c ${CFLAGS} ${serverObjects} -o $@
 
 client: util.o client.c
-	${CC} $@.c -g ${clientObjects} -o $@
+	${CC} $@.c ${CFLAGS} ${clientObjects} -o $@
 
 util.o: util.h
 
