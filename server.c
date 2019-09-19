@@ -20,7 +20,12 @@
 
 int LISTENFD;
 
-typedef struct client_connection {
+
+// ===========================================================================
+//                                   CLIENT 
+// ===========================================================================
+
+typedef struct client {
     pid_t pid;
     int client_id;
     int connectionFd;
@@ -32,19 +37,6 @@ typedef struct client_connection {
 Client_t *clients;
 int processes_mem;
 
-void client_close(Client_t* client) {
-    close(client->connectionFd);
-    // close(LISTENFD);
-    client->free = 1;
-}
-
-void init_clients() {
-    for (int i = 0; i < MAX_USES; ++i) { 
-        clients[i].free = true; 
-        clients[i].client_id = i;
-    }
-}
-
 void shared_memory_init() {
     processes_mem = shm_open(SHARED_PRCOESS_NAME, O_CREAT | O_RDWR, 0666);
     ftruncate(processes_mem, MAX_USES * sizeof(int));
@@ -54,6 +46,42 @@ void shared_memory_init() {
 void shared_memory_close() {
     unlink(SHARED_PRCOESS_NAME);
 }
+
+void client_init() {
+    for (int i = 0; i < MAX_USES; ++i) { 
+        clients[i].free = true; 
+        clients[i].client_id = i;
+    }
+}
+
+// returns -1 if no child slot avaliable, else returns client id
+Client_t *client_add() {
+    for (int i = 0; i < MAX_USES; ++i) {
+        if (clients[i].free) { return &clients[i]; }
+    }
+    return NULL;
+}
+
+void client_close(Client_t* client) {
+    close(client->connectionFd);
+    // close(LISTENFD);
+    client->free = 1;
+}
+
+void client_close_all() {
+    pid_t pid;
+    for (int i = 0; i < MAX_USES; ++i) {
+        pid = clients[i].pid;
+        if (pid) {
+            kill(pid, SIGINT);
+        }
+    }
+}
+
+
+// ===========================================================================
+//                               SERVER MAIN 
+// ===========================================================================
 
 int socket_init(int port) {
     struct sockaddr_in serverAddr;
@@ -102,13 +130,6 @@ void chat_listen(int connectFd, Client_t *client) {
     }
 }
 
-// returns -1 if no child slot avaliable, else returns client id
-Client_t *add_client() {
-    for (int i = 0; i < MAX_USES; ++i) {
-        if (clients[i].free) { return &clients[i]; }
-    }
-    return NULL;
-}
 
 void incoming_connections(int listenFd) {
     pid_t pid;
@@ -123,7 +144,7 @@ void incoming_connections(int listenFd) {
     }
 
         
-    client_ptr = add_client(); // Checks for avaliable client slot
+    client_ptr = client_add(); // Checks for avaliable client slot
 
     if (client_ptr == NULL) {
         send(connectFd, "SERVER FULL", 32, 0);
@@ -148,21 +169,10 @@ void incoming_connections(int listenFd) {
     }
 }
 
-
-void kill_children() {
-    pid_t pid;
-    for (int i = 0; i < MAX_USES; ++i) {
-        pid = clients[i].pid;
-        if (pid) {
-            kill(pid, SIGINT);
-        }
-    }
-}
-
-
 void chat_shutdown() {
     printf("bye\n");
     close(LISTENFD);
+    client_close_all();
     shared_memory_close();
     exit(0);
 }
@@ -171,7 +181,7 @@ void chat_shutdown() {
 int main(int argc, char const *argv[])
 {
     shared_memory_init();
-    init_clients();
+    client_init();
     signal(SIGINT, chat_shutdown);
     if (argc != 2) {
         printf("server takes in 1 inputs, you have %d\n", argc);
