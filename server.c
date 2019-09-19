@@ -23,75 +23,73 @@ int LISTENFD;
 //                                   CHAT LOG 
 // ===========================================================================
 
+
+#define SHARED_CHAT_NAME "CHAT%d"
+#define MAX_CHANNELS 256
+#define CHANNAL_INIT_SIZE 1024
+#define MESSAGE_SIZE 1024 * 8
+
 typedef struct message {
     int client_id;
     int channel;
-    char* message; 
+    char message[MESSAGE_SIZE]; 
     int time;
 } Message_t;
 
 typedef struct node Node_t;
 
-struct node {
-    Message_t *message;
-    Node_t *next;
-};
+typedef struct channel {
+    Message_t messages[CHANNAL_INIT_SIZE];
+    size_t pos;
+    int shm_sg;
+    char  shm_name[8];
+} Channel_t;
 
-#define SHARED_CHAT_NAME "CHAT"
-#define MAX_CHANNELS 256
-Node_t** channels;
+
+Channel_t* channels[MAX_CHANNELS];
 int chat_mem;
 
-void channel_memory_init() {
-    chat_mem = shm_open(SHARED_CHAT_NAME, O_CREAT | O_RDWR, 0666);
-    ftruncate(chat_mem, 256 * sizeof(Node_t**));
-    channels = mmap(0, MAX_USES * sizeof(int), PROT_WRITE, MAP_SHARED, chat_mem, 0);
+Channel_t* channel_memory_init(int i) {
+    Channel_t* channel;
+    char name[8];
+    sprintf(name, SHARED_CHAT_NAME, i);
+    int shm_sg = shm_open(name, O_CREAT | O_RDWR, 0666);
+    ftruncate(shm_sg, sizeof(Channel_t));
+    channel = mmap(0, sizeof(Channel_t), PROT_WRITE, MAP_SHARED, shm_sg, 0);
+    sprintf(channel->shm_name, name);
+    return channel;
 }
 
-void channels_init() {
+void channel_close() {
     for (int i = 0; i < MAX_CHANNELS; ++i) {
-        channels[i] = NULL;
+        unlink(channels[i]->shm_name);
     }
 }
 
-void channel_close(Node_t *node) {
-    if (node = NULL) return;
-    
-    for (; node != NULL; node = node->next) { free(node); }
-} 
-
-void channels_close_all() {
+void channel_init() {
     for (int i = 0; i < MAX_CHANNELS; ++i) {
-        channel_close(channels[i]);
+        channels[i] = channel_memory_init(i);
+        channels[i]->pos = 0;
     }
 }
 
-void message_print(Message_t *message) {
-    printf("#%d: %s\n", message->client_id, message->message);
+void message_print(Message_t message) {
+    printf("#%d: %s\n", message.client_id, message.message);
 }
 
 void channel_print(int channel) {
-    Node_t* head = channels[channel];
-    for ( ; head != NULL; head = head->next) {
-        message_print(head->message);
+    Channel_t* c = channels[channel];
+    for (int i = 0; i < c->pos; ++i) {
+        message_print(c->messages[i]);
     }
 }
 
-Node_t * message_put(Node_t *head, Message_t *message) {
-    if (head == NULL) {
-        head = malloc(sizeof(Node_t));
-        head->next = NULL;
-        head->message = message;
-        return head;
-    }
-
-    Node_t *node = malloc(sizeof(Node_t));
-
-    node->next = head;
-    node->message = message;
-    return node;
+void message_put(int channel , Message_t message) {
+    printf("adding to chat\n");
+    Channel_t* c = channels[channel];
+    c->messages[c->pos] = message; 
+    c->pos ++;
 }
-
 
 // ===========================================================================
 //                                   CLIENT 
@@ -147,11 +145,11 @@ void client_close_all() {
 }
 
 int add_message(int channel, char * message, Client_t * client) {
-    Message_t* m = malloc(sizeof(Message_t));
-    m->channel = channel;
-    m->client_id = client->client_id;
-    m->message = message;
-    channels[channel] = message_put(channels[channel], m);
+    Message_t m;
+    m.channel = channel;
+    m.client_id = client->client_id;
+    sprintf(m.message, message);
+    message_put(channel, m);
 }
 
 
@@ -292,6 +290,7 @@ void chat_shutdown() {
     printf("bye\n");
     close(LISTENFD);
     client_close_all();
+    channel_close();
     unlink(SHARED_PRCOESS_NAME);
     unlink(SHARED_CHAT_NAME);
     exit(0);
@@ -301,9 +300,8 @@ void chat_shutdown() {
 int main(int argc, char const *argv[])
 {
     shared_memory_init();
-    channel_memory_init();
+    channel_init();
     client_init();
-    channels_init();
     signal(SIGINT, chat_shutdown);
     if (argc != 2) {
         printf("server takes in 1 inputs, you have %d\n", argc);
@@ -316,7 +314,8 @@ int main(int argc, char const *argv[])
     int listenFd = socket_init(port);
 
     LISTENFD = listenFd;
-    incoming_connections_single_process(listenFd);
-    // incoming_connections(listenFd);
+    // incoming_connections_single_process(listenFd);
+    incoming_connections(listenFd);
+    chat_shutdown();
     return 0;
 }
