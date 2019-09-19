@@ -128,7 +128,7 @@ int send_data(User_t* user, char* data) {
     int sockFd = user->connectionFd;
     struct sockaddr_in *serverAddr = user->server_address;
 
-    sprintf(buffer, data);
+    snprintf(buffer, BUFFER_SIZE, data);
     send(sockFd, buffer, BUFFER_SIZE, 0);
     recv(sockFd, buffer, BUFFER_SIZE, 0);
 
@@ -141,7 +141,9 @@ int send_data(User_t* user, char* data) {
 }
 
 void send_message(int channel, User_t* user, char *message) {
-
+    char buffer[BUFFER_SIZE];
+    snprintf(buffer, BUFFER_SIZE, "0%03d%s", channel, message);
+    send_data(user, buffer);
 }
 
 
@@ -250,7 +252,7 @@ void user_input(User_t *user_ptr)
             quit(user_ptr);
         }
         else if (strcasecmp(com, "TEST") == 0) {
-            send_data(user_ptr, "test data");
+            send_data(user_ptr, "0001test data");
         }
         else {
             printf("Not valid command\n");

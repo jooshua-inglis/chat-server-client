@@ -27,6 +27,7 @@ typedef struct message {
     int client_id;
     int channel;
     char* message; 
+    int time;
 } Message_t;
 
 typedef struct node Node_t;
@@ -188,21 +189,37 @@ int socket_init(int port) {
     return listenFd;
 }
 
+enum Request {
+    Send, NextId, LivefeedId, Next, Livefeed, Bye
+};
+
+#define REQUESET_BITS 1
+
 void chat_listen(int connectFd, Client_t *client) {
     char buffer[BUFFER_SIZE];
-
+    char *tmp;
     while (1) {
         recv(client->connectionFd, buffer, BUFFER_SIZE, MSG_CONFIRM);
         printf("Received \"%s\" from client!\n", buffer);
-        
-        add_message(0, buffer, client);
+        int request = buffer[0] - '0';
+
+        if (request == Send) {
+            char _channel[3];
+            strncpy(_channel, buffer + REQUESET_BITS, 3);
+            int channel = atoi(_channel);
+            char message[BUFFER_SIZE - REQUESET_BITS - 3];
+            strcpy(message, buffer + REQUESET_BITS + 3);
+
+            printf("adding to channel %d\n", channel);
+            add_message(channel, message, client);
+        }
 
         if (strcmp("CLOSE", buffer) == 0) {
             printf("Closing Process for user\n");
             client_close(client);
             return;
         }
-        channel_print(0);
+        channel_print(1);
         sprintf(buffer, "SUCCESS");
         send(client->connectionFd, buffer, BUFFER_SIZE, 0);
     }
