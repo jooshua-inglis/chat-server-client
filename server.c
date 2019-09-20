@@ -100,6 +100,7 @@ typedef struct client {
     int client_id;
     int connectionFd;
     bool free;
+    int positions[MAX_CHANNELS];
 } Client_t;
 
 
@@ -109,14 +110,15 @@ int processes_mem;
 
 void shared_memory_init() {
     processes_mem = shm_open(SHARED_PRCOESS_NAME, O_CREAT | O_RDWR, 0666);
-    ftruncate(processes_mem, MAX_USES * sizeof(int));
-    clients = mmap(0, MAX_USES * sizeof(int), PROT_WRITE, MAP_SHARED, processes_mem, 0);
+    ftruncate(processes_mem, MAX_USES * sizeof(Client_t));
+    clients = mmap(0, MAX_USES * sizeof(Client_t), PROT_WRITE, MAP_SHARED, processes_mem, 0);
 }
 
 void client_init() {
     for (int i = 0; i < MAX_USES; ++i) { 
         clients[i].free = true; 
         clients[i].client_id = i;
+        bzero(clients[i].positions, MAX_CHANNELS);
     }
 }
 
@@ -130,7 +132,7 @@ Client_t *client_add() {
 
 void client_close(Client_t* client) {
     close(client->connectionFd);
-    // close(LISTENFD);
+    close(LISTENFD);
     client->free = 1;
 }
 
@@ -152,6 +154,13 @@ int add_message(int channel, char * message, Client_t * client) {
     message_put(channel, m);
 }
 
+Message_t* next(int c, Client_t* client) {
+    Channel_t *channel = channels[c];
+    if (channel->pos == client->positions[c]){
+        return NULL;
+    }
+    return &channel->messages[client->positions[c]++];
+}
 
 
 // ===========================================================================
@@ -198,13 +207,15 @@ void chat_listen(int connectFd, Client_t *client) {
     char *tmp;
     while (1) {
         recv(client->connectionFd, buffer, BUFFER_SIZE, MSG_CONFIRM);
-        printf("Received \"%s\" from client!\n", buffer);
+        send(client->connectionFd, "SUCCESS", BUFFER_SIZE, 0);
+
         int request = buffer[0] - '0';
 
         if (request == Send) {
             char _channel[3];
-            strncpy(_channel, buffer + REQUESET_BITS, 3);
-            int channel = atoi(_channel);
+            snprintf(_channel, 3 + 1, buffer + REQUESET_BITS);
+            int channel = strtol(_channel, NULL, 0);
+            printf("%s", _channel);
             char message[BUFFER_SIZE - REQUESET_BITS - 3];
             strcpy(message, buffer + REQUESET_BITS + 3);
 
@@ -212,14 +223,25 @@ void chat_listen(int connectFd, Client_t *client) {
             add_message(channel, message, client);
         }
 
+        if (request == NextId) {
+            char _channel[3];
+            strncpy(_channel, buffer + REQUESET_BITS, 3);
+            int channel = atoi(_channel);
+            
+            Message_t* message = next(channel, client);
+            if (message == NULL) {
+                sprintf(buffer, "");
+            }else {
+                sprintf(buffer, message->message);
+            }
+            send(client->connectionFd, buffer, BUFFER_SIZE, 0);
+        }
+
         if (strcmp("CLOSE", buffer) == 0) {
             printf("Closing Process for user\n");
             client_close(client);
             return;
         }
-        channel_print(1);
-        sprintf(buffer, "SUCCESS");
-        send(client->connectionFd, buffer, BUFFER_SIZE, 0);
     }
 }
 
@@ -314,8 +336,8 @@ int main(int argc, char const *argv[])
     int listenFd = socket_init(port);
 
     LISTENFD = listenFd;
-    // incoming_connections_single_process(listenFd);
-    incoming_connections(listenFd);
+    incoming_connections_single_process(listenFd);
+    // incoming_connections(listenFd);
     chat_shutdown();
     return 0;
 }

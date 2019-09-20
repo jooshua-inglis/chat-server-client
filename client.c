@@ -102,6 +102,24 @@ int get_channel_id(char* param) {
         return channelId;
 }
 
+
+int send_data(User_t* user, char* data) {
+    char buffer[BUFFER_SIZE];
+    int sockFd = user->connectionFd;
+    struct sockaddr_in *serverAddr = user->server_address;
+
+    snprintf(buffer, BUFFER_SIZE, data);
+    send(sockFd, buffer, BUFFER_SIZE, 0);
+    recv(sockFd, buffer, BUFFER_SIZE, 0);
+
+    if (strcmp(buffer, "SUCCESS"))
+    {
+        printf("Failed to send message");
+        return -1;
+    }
+    return 0;
+}
+
 void init_user(User_t * user) {
 
 }
@@ -120,24 +138,17 @@ void list_channels(User_t* user) {
 
 // If channelId is -1 then get the message of all the channels
 void get_next_message(int channelId, User_t* user) {
-    // TODO implement list get_next_message
-}
-
-int send_data(User_t* user, char* data) {
     char buffer[BUFFER_SIZE];
-    int sockFd = user->connectionFd;
-    struct sockaddr_in *serverAddr = user->server_address;
-
-    snprintf(buffer, BUFFER_SIZE, data);
-    send(sockFd, buffer, BUFFER_SIZE, 0);
-    recv(sockFd, buffer, BUFFER_SIZE, 0);
-
-    if (strcmp(buffer, "SUCCESS"))
+    sprintf(buffer, "1%03d", channelId);
+    send_data(user, buffer);
+    recv(user->connectionFd, buffer, BUFFER_SIZE, 0);
+    if (buffer[0] != '\0') {
+        printf("%s\n", buffer);
+    } else
     {
-        printf("Failed to send message");
-        return -1;
+        printf("send nothing\n");
     }
-    return 0;
+    
 }
 
 void send_message(int channel, User_t* user, char *message) {
@@ -216,7 +227,7 @@ void user_input(User_t *user_ptr)
         else if (strcasecmp(com, "NEXT") == 0) {
             char *param = strtok(NULL, " ");
             if (param == NULL) {
-                get_next_message(-1, user_ptr);
+                get_next_message(0, user_ptr); // change id to something ele for next without id
             }
             else {
                 int id = get_channel_id(param);
