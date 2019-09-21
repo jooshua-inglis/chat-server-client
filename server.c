@@ -13,6 +13,8 @@
 #include <sys/stat.h>        /* For mode constants */
 #include <fcntl.h>           /* For O_* constants */
 #include <stdbool.h>
+#include <time.h>
+#include "util.h"
 
 #define BUFFER_SIZE 32
 #define MAX_USES  256
@@ -85,10 +87,8 @@ void channel_print(int channel) {
 }
 
 void message_put(int channel , Message_t message) {
-    printf("adding to chat\n");
     Channel_t* c = channels[channel];
-    c->messages[c->pos] = message; 
-    c->pos ++;
+    c->messages[c->pos++] = message; 
 }
 
 // ===========================================================================
@@ -118,7 +118,9 @@ void client_init() {
     for (int i = 0; i < MAX_USES; ++i) { 
         clients[i].free = true; 
         clients[i].client_id = i;
-        bzero(clients[i].positions, MAX_CHANNELS);
+        for (int j = 0; j < MAX_CHANNELS; ++j) {
+            clients[i].positions[j] = -1;
+        }
     }
 }
 
@@ -146,26 +148,67 @@ void client_close_all() {
     }
 }
 
+bool is_subscribed(Client_t* client, int c) {
+    return client->positions[c] != -1;
+}
+
+int subscribe(Client_t* client, int c) {
+    if (!is_subscribed(client, c)) {
+        client->positions[c] = channels[c]->pos;
+        printf("%d subbed to channel %d\n", client->client_id, c);
+        return 0;
+    } else return -1;
+}
+
+int unsubscribe(Client_t* client, int c) {
+    if (is_subscribed(client, c)) {
+        client->positions[c] = -1;
+        printf("%d subbed to channel %d\n", client->client_id, c);
+
+        return 0;
+    } else return -1;
+
+}
+
 int add_message(int channel, char * message, Client_t * client) {
     Message_t m;
     m.channel = channel;
     m.client_id = client->client_id;
+    m.time = time(NULL);
+    printf("%d posted %s to %d\n", client->client_id, message, channel);
     sprintf(m.message, message);
     message_put(channel, m);
+    return 0;
 }
 
-Message_t* next(int c, Client_t* client) {
+void next_id(int c, Client_t* client) {
     Channel_t *channel = channels[c];
     if (channel->pos == client->positions[c]){
-        return NULL;
+        send(client->connectionFd, "", BUFFER_SIZE, 0);
+        return;
+    } else if (!is_subscribed(client, c)) {
+        char buffer[BUFFER_SIZE];
+        sprintf(buffer, "Not subscribed to %d", c);
+        send(client->connectionFd, buffer, BUFFER_SIZE, 0);
     }
-    return &channel->messages[client->positions[c]++];
+    else {
+        Message_t message = channel->messages[client->positions[c]++];
+        send(client->connectionFd, message.message, BUFFER_SIZE, 0);
+    }
+            
 }
 
 
 // ===========================================================================
 //                               SERVER MAIN 
 // ===========================================================================
+
+int int_range(char* message, int start, int finnish, int* error) {
+    if (start > finnish) *error = -1;
+    char buffer[finnish - start]; 
+    snprintf(buffer, finnish - start + 1, message + start);
+    return strtol(buffer, NULL, 0);
+}
 
 int socket_init(int port) {
     struct sockaddr_in serverAddr;
@@ -196,16 +239,13 @@ int socket_init(int port) {
     return listenFd;
 }
 
-enum Request {
-    Send, NextId, LivefeedId, Next, Livefeed, Bye
-};
-
 #define REQUESET_BITS 1
 
 void chat_listen(int connectFd, Client_t *client) {
     char buffer[BUFFER_SIZE];
     char *tmp;
     while (1) {
+        fflush(stdout);
         recv(client->connectionFd, buffer, BUFFER_SIZE, MSG_CONFIRM);
         send(client->connectionFd, "SUCCESS", BUFFER_SIZE, 0);
 
@@ -215,7 +255,7 @@ void chat_listen(int connectFd, Client_t *client) {
             char _channel[3];
             snprintf(_channel, 3 + 1, buffer + REQUESET_BITS);
             int channel = strtol(_channel, NULL, 0);
-            printf("%s", _channel);
+
             char message[BUFFER_SIZE - REQUESET_BITS - 3];
             strcpy(message, buffer + REQUESET_BITS + 3);
 
@@ -223,16 +263,31 @@ void chat_listen(int connectFd, Client_t *client) {
             add_message(channel, message, client);
         }
 
-        if (request == NextId) {
+        else if (request == NextId) {
             char _channel[3];
             strncpy(_channel, buffer + REQUESET_BITS, 3);
             int channel = atoi(_channel);
             
-            Message_t* message = next(channel, client);
-            if (message == NULL) {
-                sprintf(buffer, "");
-            }else {
-                sprintf(buffer, message->message);
+            next_id(channel, client);
+        }
+
+        else if (request == Sub) {
+            int channel = int_range(buffer, 1, 4, NULL);
+            if (subscribe(client, channel) == -1) {
+                sprintf(buffer, "ALREADY SUBBED");
+            } else {
+                sprintf(buffer, "SUCCESS");
+            }
+            send(client->connectionFd, buffer, BUFFER_SIZE, 0);
+
+        }
+
+        else if (request == UnSub) {
+            int channel = int_range(buffer, 1, 4, NULL);
+            if (unsubscribe(client, channel) == -1) {
+                sprintf(buffer, "NOT SUBBED");
+            } else {
+                sprintf(buffer, "SUCCESS");
             }
             send(client->connectionFd, buffer, BUFFER_SIZE, 0);
         }
@@ -287,7 +342,6 @@ void incoming_connections(int listenFd) {
 void incoming_connections_single_process(int listenFd) {
     pid_t pid;
 
-    Client_t client;
     a:
     printf("Waiting for another connection\n");
     int connectFd = accept(listenFd, NULL, NULL);
@@ -300,12 +354,12 @@ void incoming_connections_single_process(int listenFd) {
     sprintf(buffer, "%d", 0);
     send(connectFd, buffer, BUFFER_SIZE, 0);
 
-    client.client_id = 0;
-    client.connectionFd = connectFd;
-    client.free = 0;
-    client.pid = getpid();
+    Client_t * client = &clients[0];
+    client->connectionFd = connectFd;
+    client->pid= getpid();
 
-    chat_listen(connectFd, &client);
+    printf("Client %d connected\n", client->client_id);
+    chat_listen(connectFd, &clients[0]);
 }
 
 void chat_shutdown() {
@@ -336,8 +390,8 @@ int main(int argc, char const *argv[])
     int listenFd = socket_init(port);
 
     LISTENFD = listenFd;
-    incoming_connections_single_process(listenFd);
-    // incoming_connections(listenFd);
+    // incoming_connections_single_process(listenFd);
+    incoming_connections(listenFd);
     chat_shutdown();
     return 0;
 }

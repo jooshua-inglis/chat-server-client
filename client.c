@@ -9,6 +9,8 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <signal.h>
+#include "util.h"
+#include <stdbool.h>
 
 #define BUFFER_SIZE 32
 
@@ -124,12 +126,37 @@ void init_user(User_t * user) {
 
 }
 
+int subscription(int channelId, User_t* user, int request) {
+    if (channelId > 255 || channelId < 0) {
+        printf("Invalid channel: %d", channelId);
+        return -2;
+    }
+
+    char buffer[BUFFER_SIZE];
+    snprintf(buffer, BUFFER_SIZE, "%d%03d", request, channelId);
+    send_data(user, buffer);
+    recv(user->connectionFd, buffer, BUFFER_SIZE, 0);
+    if (strcmp(buffer, "SUCCESS") == 0) {
+        return 0;
+    } else return -1;
+}
+
 void subscribe_to(int channelId, User_t* user) {
-    // TODO implemnt subscribe_to
+    int error = subscription(channelId, user, Sub);
+    if (error == 0) {
+        printf("Subscribed to channel %d\n", channelId);
+    } else if(error == -1) {
+        printf("Already subscribed to channel %d\n", channelId);
+    }
 }
 
 void unsubscribe_from(int channelId, User_t* user) {
-    // TODO implemnt unsubscribe_from
+    int error = subscription(channelId, user, UnSub);
+    if (error == 0) {
+        printf("Unsubscribed to channel %d\n", channelId);
+    } else if(error == -1) {
+        printf("Not subscribed to channel %d\n", channelId);
+    }
 }
 
 void list_channels(User_t* user) {
@@ -139,21 +166,20 @@ void list_channels(User_t* user) {
 // If channelId is -1 then get the message of all the channels
 void get_next_message(int channelId, User_t* user) {
     char buffer[BUFFER_SIZE];
-    sprintf(buffer, "1%03d", channelId);
+    sprintf(buffer, "%d%03d", NextId, channelId);
     send_data(user, buffer);
     recv(user->connectionFd, buffer, BUFFER_SIZE, 0);
-    if (buffer[0] != '\0') {
-        printf("%s\n", buffer);
-    } else
-    {
+    if (buffer[0] == '\0') {
         printf("send nothing\n");
+    } else {
+        printf("%s\n", buffer);
     }
     
 }
 
 void send_message(int channel, User_t* user, char *message) {
     char buffer[BUFFER_SIZE];
-    snprintf(buffer, BUFFER_SIZE, "0%03d%s", channel, message);
+    snprintf(buffer, BUFFER_SIZE, "%d%03d%s", Send, channel, message);
     send_data(user, buffer);
 }
 
@@ -204,7 +230,6 @@ void user_input(User_t *user_ptr)
                 int id = get_channel_id(param);
                 if (id != -1) {
                     subscribe_to(id, user_ptr);
-                    printf("Subscribed to %d\n", id);
                 }
             }
         } 
@@ -217,7 +242,6 @@ void user_input(User_t *user_ptr)
                 int id = get_channel_id(param);
                 if (id != -1) {
                     unsubscribe_from(id, user_ptr);
-                    printf("Unsubscribing from to channel %d\n", id);
                 }   
             }
         }
