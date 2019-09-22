@@ -16,6 +16,10 @@
 
 int exiting = 0;
 
+// ==============================================================================
+//                              USER AND CONNECTIONS
+// ==============================================================================
+
 typedef struct user {
     int chanels[256];
     int connectionFd;
@@ -71,38 +75,16 @@ int connect_to_server(char *server_name, int port, User_t *user_ptr)
     return sockFd;
 }
 
-
-void get_inputs(char *buffer, int buffer_size)
-{
-    char c;
-    int position = 0;
-    while (1) {
-        c = getchar();
-        if (c == EOF || c == '\n') {
-            buffer[position] = '\0';
-            return;
-        }
-        else {
-            buffer[position] = c;
-        }
-        position++;
-    }
-
-    if (position >= buffer_size) {
-        return;
+void user_int(User_t* user_ptr) {
+    for (int i = 0; i < 256; i++) {
+        user_ptr->chanels[i] = 0;
     }
 }
 
-int get_channel_id(char* param) {
-    char *err;
-    int channelId = strtod(param, &err);
-    if (*err != '\0' || channelId < 0 || channelId > 255) {
-        printf("Invalid channel: %s\n", param);
-        return -1;
-    }
-    else
-        return channelId;
-}
+
+// ==============================================================================
+//                                    REQUESTS
+// ==============================================================================
 
 
 int send_data(User_t* user, char* data) {
@@ -122,9 +104,6 @@ int send_data(User_t* user, char* data) {
     return 0;
 }
 
-void init_user(User_t * user) {
-
-}
 
 int subscription(int channelId, User_t* user, int request) {
     if (channelId > 255 || channelId < 0) {
@@ -188,6 +167,11 @@ void live_feed(int channelId, User_t* user) {
 
 }
 
+ 
+// ======================================================================== //
+//                                SHELL                                     //
+// ======================================================================== //
+
 void sigin_handler(int sig) {
     exiting = 1;
 }
@@ -200,11 +184,38 @@ void quit(User_t* user) {
     exit(0);
 }
 
-void user_int(User_t* user_ptr) {
-    for (int i = 0; i < 256; i++) {
-        user_ptr->chanels[i] = 0;
+void get_inputs(char *buffer, int buffer_size)
+{
+    char c;
+    int position = 0;
+    while (1) {
+        c = getchar();
+        if (c == EOF || c == '\n') {
+            buffer[position] = '\0';
+            return;
+        }
+        else {
+            buffer[position] = c;
+        }
+        position++;
+    }
+
+    if (position >= buffer_size) {
+        return;
     }
 }
+
+int get_channel_id(char* param) {
+    char *err;
+    int channelId = strtod(param, &err);
+    if (*err != '\0' || channelId < 0 || channelId > 255) {
+        printf("Invalid channel: %s\n", param);
+        return -1;
+    }
+    else
+        return channelId;
+}
+
 
 
 void user_input(User_t *user_ptr)
