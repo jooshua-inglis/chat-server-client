@@ -1,5 +1,5 @@
 CC = c99
-CFLAGS = -lrt -g
+CFLAGS = -lrt -g -pthread 
 
 all: server client 
 

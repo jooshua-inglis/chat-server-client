@@ -11,6 +11,8 @@
 #include <signal.h>
 #include "util.h"
 #include <stdbool.h>
+#include <pthread.h>
+#include <semaphore.h>
 
 #define BUFFER_SIZE 32
 
@@ -20,12 +22,25 @@ int exiting = 0;
 //                              USER AND CONNECTIONS
 // ==============================================================================
 
+typedef struct next_job Next_job_t;
+typedef struct list List_t;
+
+struct list {
+    Next_job_t* head;
+    Next_job_t* tail;
+};
+
 typedef struct user {
     int chanels[256];
     int connectionFd;
     struct sockaddr_in* server_address;
     int address_size;
     int client_id;
+
+    sem_t sem;
+    List_t list;
+
+    pthread_mutex_t port_mutex;
 } User_t;
 
 
@@ -79,6 +94,7 @@ void user_int(User_t* user_ptr) {
     for (int i = 0; i < 256; i++) {
         user_ptr->chanels[i] = 0;
     }
+    pthread_mutex_init(&user_ptr->port_mutex, NULL);
 }
 
 
@@ -91,14 +107,23 @@ int send_data(User_t* user, char* data) {
     char buffer[BUFFER_SIZE];
     int sockFd = user->connectionFd;
     struct sockaddr_in *serverAddr = user->server_address;
+    int err;
 
     snprintf(buffer, BUFFER_SIZE, data);
-    send(sockFd, buffer, BUFFER_SIZE, 0);
+
+    pthread_mutex_lock(&user->port_mutex);
+
+    if (send(sockFd, buffer, BUFFER_SIZE, 0) == -1) {
+        printf("failed to send message\n");
+        return -1;
+    }
     recv(sockFd, buffer, BUFFER_SIZE, 0);
+
+    pthread_mutex_unlock(&user->port_mutex);
 
     if (strcmp(buffer, "SUCCESS"))
     {
-        printf("Failed to send message");
+        printf("Failed to varify message\n");
         return -1;
     }
     return 0;
@@ -167,6 +192,71 @@ void live_feed(int channelId, User_t* user) {
 
 }
 
+
+// ============================================================================== //
+//                                 THREADED REQUESTS                              //
+// ============================================================================== //
+
+
+struct next_job {
+    int channel;
+    Next_job_t* next;
+};
+
+struct next_thr {
+    sem_t* job_sem;
+    List_t* job_list;
+    User_t* user;
+}; 
+
+
+void thread_do(User_t* user) {
+    sem_t* job_sem = &user->sem; 
+    List_t* job_list = &user->list;
+
+    int channelId;
+    while(1) {
+        start:
+        sem_wait(job_sem);
+        if (job_list->head == NULL) {
+            printf("DEUBG job isn't on head\n");
+            continue;
+        }
+
+        channelId = job_list->head->channel;
+        get_next_message(channelId, user);
+        Next_job_t* old_job = job_list->head;
+        job_list->head = job_list->head->next;
+        free(old_job);
+    }
+}
+
+
+void pnext(User_t* user, int channel) {
+    Next_job_t* job = malloc(sizeof(Next_job_t));
+    job->channel = channel;
+    job->next = NULL;
+    List_t* list = &user->list;
+    if (list->head == NULL) {
+        list->tail = job;
+        list->head = job;
+    } else {
+        list->tail->next = job;
+        list->tail = job;
+    }
+    sem_post(&user->sem);
+}
+
+void next_init(User_t* user) {
+    struct next_thr* params = malloc(sizeof(struct next_thr));
+    sem_init(&user->sem, 0, 0);
+
+    user->list.head = NULL;
+    user->list.tail = NULL;
+
+    pthread_t thread;
+    pthread_create(&thread, NULL, (void * (*) (void * )) thread_do, user);
+}
  
 // ======================================================================== //
 //                                SHELL                                     //
@@ -221,8 +311,7 @@ int get_channel_id(char* param) {
 void user_input(User_t *user_ptr)
 {
     char cmd[100];
-
-    init_user(user_ptr);
+    next_init(user_ptr);
 
     while (1) {
         char com[100];
@@ -267,7 +356,7 @@ void user_input(User_t *user_ptr)
             else {
                 int id = get_channel_id(param);
                 if (id != -1) {
-                    get_next_message(id, user_ptr);
+                    pnext(user_ptr, id);
                 }   
             }
         }
@@ -321,7 +410,6 @@ int main(int argc, char **argv)
     User_t user;
 
     connect_to_server(serverName, port, &user);
-    send_data(&user, "test");
     user_input(&user);
     quit(&user);
 
