@@ -179,8 +179,7 @@ void get_next_message(int channelId, User_t* user) {
     } else {
         printf("\r%s\n> ", buffer);
     }
-    fflush(stdout);
-    
+    fflush(stdout);   
 }
 
 void send_message(int channel, User_t* user, char *message) {
@@ -260,6 +259,20 @@ void next_init(User_t* user) {
     pthread_create(&thread, NULL, (void * (*) (void * )) thread_do, user);
 }
  
+// ======================================================================== //
+//                                  LIVEFEED                                //
+// ========================================================================       
+
+
+// void live_listen(User_t* user) {
+//     char* buffer[BUFFER_SIZE];
+//     while(1) {
+
+//         recv(user->connectionFd, buffer, BUFFER_SIZE, MSG_OOB);
+//         printf(buffer);
+//     }
+// }
+
 // ======================================================================== //
 //                                SHELL                                     //
 // ======================================================================== //
@@ -355,7 +368,7 @@ void user_input(User_t *user_ptr)
         else if (strcasecmp(com, "NEXT") == 0) {
             char *param = strtok(NULL, " ");
             if (param == NULL) {
-                get_next_message(0, user_ptr); // change id to something ele for next without id
+                get_next_message(-1, user_ptr); // change id to something ele for next without id
             }
             else {
                 int id = get_channel_id(param);
