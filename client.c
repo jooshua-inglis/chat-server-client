@@ -206,6 +206,10 @@ void live_feed(int channelId, User_t* user) {
     char buffer[BUFFER_SIZE];
     snprintf(buffer, BUFFER_SIZE, "%d%03d", LivefeedId, channelId);
     send_data(user,buffer);
+    pthread_mutex_lock(&user->port_mutex);
+    recv(user->connectionFd, buffer, BUFFER_SIZE, 0);
+    printf("%s\n", buffer);
+    pthread_mutex_unlock(&user->port_mutex);
 }
 
 
@@ -273,12 +277,17 @@ void next_init(User_t* user) {
     pthread_create(&thread, NULL, (void * (*) (void * )) thread_do, user);
 }
 
+void quit(User_t* user);
+
 void livefeed_listen(User_t* user) {
     char buffer[BUFFER_SIZE];
     while(1) {
         recv(user->connectionFd, buffer, BUFFER_SIZE, MSG_PEEK);
+        if (strcmp(buffer, "CLOSE") == 0) {
+            quit(user);
+        }
         if (pthread_mutex_trylock(&user->port_mutex) == EBUSY) continue;
-        recv(user->connectionFd, buffer, BUFFER_SIZE, 0);
+        int err = recv(user->connectionFd, buffer, BUFFER_SIZE, 0);
         printf("\r%s\n> ", buffer);
         fflush(stdout);
         pthread_mutex_unlock(&user->port_mutex);
@@ -287,7 +296,6 @@ void livefeed_listen(User_t* user) {
 
 void livefeed_init(User_t* user) {
     pthread_t thread;
-
     pthread_create(&thread, NULL, (void * (*) (void * )) livefeed_listen, user);
 }
  
@@ -300,7 +308,7 @@ void sigin_handler(int sig) {
 }
 
 void quit(User_t* user) {
-    printf("\nBye\n");
+    printf("\rBye         \n");
     char buffer[10];
     send(user->connectionFd, "CLOSE", BUFFER_SIZE, 0);
     close(user->connectionFd);
@@ -386,7 +394,7 @@ void user_input(User_t *user_ptr)
         else if (strcasecmp(com, "NEXT") == 0) {
             char *param = strtok(NULL, " ");
             if (param == NULL) {
-                get_next_message(-1, user_ptr); // change id to something ele for next without id
+                pnext(user_ptr, -1); // change id to something ele for next without id
             }
             else {
                 int id = get_channel_id(param);
