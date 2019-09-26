@@ -118,6 +118,8 @@ typedef struct client {
     int positions[MAX_CHANNELS];
     int buffer_pos;
     message_que_t que;
+    bool livefeeds[MAX_CHANNELS];
+    bool livefeed_all;
 } Client_t;
 
 
@@ -136,6 +138,7 @@ void client_init() {
         clients[i].free = true; 
         clients[i].client_id = i;
         for (int j = 0; j < MAX_CHANNELS; ++j) {
+            clients[i].livefeeds[j] = false;
             clients[i].positions[j] = -1;
         }
     }
@@ -203,12 +206,24 @@ void buffer_add(Message_t* message, struct message_buffer* buffer) {
     buffer->buffer[buffer->writer_pos++] = message;
 }
 
-void que_add(Client_t* client) {
+
+bool is_livefeed(Client_t* client, int channel) {
+    return client->livefeed_all || client->livefeeds[channel];
+}
+
+
+Message_t* que_add(Client_t* client) {
     message_que_t* que = &client->que;
     message_node_t* node = malloc(sizeof(message_node_t));
     node->message = mess_buffer->buffer[client->buffer_pos++];
     node->time = node->message->time;
     node->next = NULL;
+
+    if (is_livefeed(client, node->message->channel)) {
+        send(client->connectionFd, node->message->message, BUFFER_SIZE, MSG_OOB);
+        client->positions[node->message->channel]++;
+        return node->message;
+    }
 
     if (que->head == NULL) {
         que->head = node;
@@ -218,7 +233,7 @@ void que_add(Client_t* client) {
         que->tail = node;
     }
 
-    return;
+    return node->message;
 }
 
 bool _message_read(int mess_pos, int read_pos, int write_pos) { 
@@ -235,6 +250,7 @@ bool message_read(Client_t* client, Message_t* message) {
     return _message_read(mess_pos, read_pos, write_pos);
 }
 
+
 void message_reader(Client_t* client) {
     while(1) {
         sleep(1);
@@ -242,7 +258,7 @@ void message_reader(Client_t* client) {
 
         else {
             printf("adding to que!\n");
-            que_add(client);
+            Message_t* new_message = que_add(client);
         }
     }
 }
@@ -321,6 +337,32 @@ void next_id(int c, Client_t* client) {
 }
 
 
+void catch_up(Client_t* client, int c) {
+    if (c == -1) {
+        while (client->que.head != NULL) {
+            next_time(client, &client->que);
+        }
+    } else {
+
+        Channel_t* channel = channels[c];
+        while (client->positions[c] != channel->pos) {
+            next_id(c, client);
+        }
+    }
+}
+
+void remove_livefeed(Client_t* client, int channel) {
+    if (channel == -1) client->livefeed_all = false;
+    else client->livefeeds[channel] = false;
+}
+
+void add_livefeed(Client_t* client, int channel) {
+    if (channel == -1) client->livefeed_all = true;
+    client->livefeeds[channel] = true;
+    catch_up(client, channel);
+}
+
+
 // ===========================================================================
 //                               SERVER MAIN 
 // ===========================================================================
@@ -396,6 +438,12 @@ void chat_listen(int connectFd, Client_t *client) {
                 next_id(channel, client);
             else 
                 next_time(client, &client->que);
+        }
+
+        else if (request == LivefeedId) {
+            int channel = int_range(buffer, 1, 4, NULL);
+            printf("client %d is now livefeeding channel %d", client->client_id, channel );
+            add_livefeed(client, channel);
         }
 
         else if (request == Sub) {

@@ -13,6 +13,7 @@
 #include <stdbool.h>
 #include <pthread.h>
 #include <semaphore.h>
+#include <sys/select.h>
 
 #define BUFFER_SIZE 32
 
@@ -107,7 +108,6 @@ void user_int(User_t* user_ptr) {
 int send_data(User_t* user, char* data) {
     char buffer[BUFFER_SIZE];
     int sockFd = user->connectionFd;
-    struct sockaddr_in *serverAddr = user->server_address;
     int err;
 
     snprintf(buffer, BUFFER_SIZE, data);
@@ -130,6 +130,10 @@ int send_data(User_t* user, char* data) {
     return 0;
 }
 
+int recive_data(User_t* user, int cha, char* data) {
+
+}
+
 
 int subscription(int channelId, User_t* user, int request) {
     if (channelId > 255 || channelId < 0) {
@@ -140,10 +144,16 @@ int subscription(int channelId, User_t* user, int request) {
     char buffer[BUFFER_SIZE];
     snprintf(buffer, BUFFER_SIZE, "%d%03d", request, channelId);
     send_data(user, buffer);
+    pthread_mutex_lock(&user->port_mutex);
     recv(user->connectionFd, buffer, BUFFER_SIZE, 0);
     if (strcmp(buffer, "SUCCESS") == 0) {
+        pthread_mutex_unlock(&user->port_mutex);
+
         return 0;
-    } else return -1;
+    }
+    pthread_mutex_unlock(&user->port_mutex);
+    return -1;
+
 }
 
 void subscribe_to(int channelId, User_t* user) {
@@ -173,12 +183,15 @@ void get_next_message(int channelId, User_t* user) {
     char buffer[BUFFER_SIZE];
     sprintf(buffer, "%d%03d", NextId, channelId);
     send_data(user, buffer);
+    pthread_mutex_lock(&user->port_mutex);
     recv(user->connectionFd, buffer, BUFFER_SIZE, 0);
     if (buffer[0] == '\0') {
         printf("\rsend nothing\n> ");
     } else {
         printf("\r%s\n> ", buffer);
     }
+    pthread_mutex_unlock(&user->port_mutex);
+
     fflush(stdout);   
 }
 
@@ -190,7 +203,9 @@ void send_message(int channel, User_t* user, char *message) {
 
 
 void live_feed(int channelId, User_t* user) {
-
+    char buffer[BUFFER_SIZE];
+    snprintf(buffer, BUFFER_SIZE, "%d%03d", LivefeedId, channelId);
+    send_data(user,buffer);
 }
 
 
@@ -249,7 +264,6 @@ void pnext(User_t* user, int channel) {
 }
 
 void next_init(User_t* user) {
-    struct next_thr* params = malloc(sizeof(struct next_thr));
     sem_init(&user->sem, 0, 0);
 
     user->list.head = NULL;
@@ -258,21 +272,25 @@ void next_init(User_t* user) {
     pthread_t thread;
     pthread_create(&thread, NULL, (void * (*) (void * )) thread_do, user);
 }
+
+void livefeed_listen(User_t* user) {
+    char buffer[BUFFER_SIZE];
+    while(1) {
+        recv(user->connectionFd, buffer, BUFFER_SIZE, MSG_PEEK);
+        if (pthread_mutex_trylock(&user->port_mutex) == EBUSY) continue;
+        recv(user->connectionFd, buffer, BUFFER_SIZE, 0);
+        printf("\r%s\n> ", buffer);
+        fflush(stdout);
+        pthread_mutex_unlock(&user->port_mutex);
+    }
+}
+
+void livefeed_init(User_t* user) {
+    pthread_t thread;
+
+    pthread_create(&thread, NULL, (void * (*) (void * )) livefeed_listen, user);
+}
  
-// ======================================================================== //
-//                                  LIVEFEED                                //
-// ========================================================================       
-
-
-// void live_listen(User_t* user) {
-//     char* buffer[BUFFER_SIZE];
-//     while(1) {
-
-//         recv(user->connectionFd, buffer, BUFFER_SIZE, MSG_OOB);
-//         printf(buffer);
-//     }
-// }
-
 // ======================================================================== //
 //                                SHELL                                     //
 // ======================================================================== //
@@ -428,6 +446,7 @@ int main(int argc, char **argv)
 
     user_int(&user);
     connect_to_server(serverName, port, &user);
+    livefeed_init(&user);
     user_input(&user);
     quit(&user);
 
