@@ -15,7 +15,6 @@
 #include <semaphore.h>
 #include <sys/select.h>
 
-#define BUFFER_SIZE 32
 
 int exiting = 0;
 
@@ -208,7 +207,8 @@ void live_feed(int channelId, User_t* user) {
     send_data(user,buffer);
     pthread_mutex_lock(&user->port_mutex);
     recv(user->connectionFd, buffer, BUFFER_SIZE, 0);
-    printf("%s\n", buffer);
+    printf("\r%s\n> ", buffer);
+    fflush(stdout);
     pthread_mutex_unlock(&user->port_mutex);
 }
 
@@ -220,6 +220,7 @@ void live_feed(int channelId, User_t* user) {
 
 struct next_job {
     int channel;
+    int request;
     Next_job_t* next;
 };
 
@@ -234,7 +235,7 @@ void thread_do(User_t* user) {
     sem_t* job_sem = &user->sem; 
     List_t* job_list = &user->list;
 
-    int channelId;
+    int channelId, request;
     while(1) {
         start:
         sem_wait(job_sem);
@@ -244,17 +245,20 @@ void thread_do(User_t* user) {
         }
 
         channelId = job_list->head->channel;
-        get_next_message(channelId, user);
+        request = job_list->head->request;
+        if (request == NextId) { get_next_message(channelId, user); }
+        else if (request == LivefeedId) { live_feed(channelId, user); }
+
         Next_job_t* old_job = job_list->head;
         job_list->head = job_list->head->next;
         free(old_job);
     }
 }
 
-
-void pnext(User_t* user, int channel) {
+void add_job(User_t* user, int channel, int request) {
     Next_job_t* job = malloc(sizeof(Next_job_t));
     job->channel = channel;
+    job->request = request;
     job->next = NULL;
     List_t* list = &user->list;
     if (list->head == NULL) {
@@ -265,6 +269,14 @@ void pnext(User_t* user, int channel) {
         list->tail = job;
     }
     sem_post(&user->sem);
+}
+
+void pnext(User_t* user, int channel) {
+    add_job(user, channel, NextId);
+}
+
+void plivefeed(User_t* user, int channel) {
+    add_job(user, channel, LivefeedId);
 }
 
 void next_init(User_t* user) {
@@ -406,12 +418,12 @@ void user_input(User_t *user_ptr)
         else if (strcasecmp(com, "LIVEFEED") == 0) {
             char *param = strtok(NULL, " ");
             if (param == NULL) {
-                live_feed(-1, user_ptr);
+                plivefeed(user_ptr, -1);
             }
             else {
                 int id = get_channel_id(param);
                 if (id != -1) {
-                    live_feed(id, user_ptr);
+                    plivefeed(user_ptr, id);
                 }   
             }
         } 

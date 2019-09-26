@@ -18,7 +18,6 @@
 #include <pthread.h>
 #include <semaphore.h>
 
-#define BUFFER_SIZE 32
 #define MAX_USES  256
 #define MAX_CHANNELS 256
 
@@ -362,9 +361,22 @@ void remove_livefeed(Client_t* client, int channel) {
 }
 
 void add_livefeed(Client_t* client, int channel) {
-    if (channel == -1) client->livefeed_all = true;
-    client->livefeeds[channel] = true;
-    catch_up(client, channel);
+    char buffer[BUFFER_SIZE];
+    if (channel == -1) { 
+        sprintf(buffer, "You are listening to all channels");
+        client->livefeed_all = true;
+    }
+    else if (is_subscribed(client, channel)) {
+        client->livefeeds[channel] = true;
+        catch_up(client, channel);
+
+        sprintf(buffer, "You are listening to channel %d", channel);
+        printf("[%d] is now livefeeding channel %d", client->client_id, channel );
+    }
+    else {
+        sprintf(buffer, "You are not subscribed to channel %d", channel);
+    }
+    int err = send(client->connectionFd, buffer, BUFFER_SIZE, 0);    
 }
 
 
@@ -473,8 +485,6 @@ void chat_listen(int connectFd, Client_t *client) {
 
         else if (request == LivefeedId) {
             int channel = int_range(buffer, 1, 4, NULL);
-            printf("[%d] is now livefeeding channel %d", client->client_id, channel );
-            send(client->connectionFd, "You are not subscribed", BUFFER_SIZE, 0);
             add_livefeed(client, channel);
         }
 
@@ -524,7 +534,7 @@ void incoming_connections(int listenFd) {
     client_ptr = client_add(); // Checks for avaliable client slot
 
     if (client_ptr == NULL) {
-        send(connectFd, "SERVER FULL", 32, 0);
+        send(connectFd, "SERVER FULL", BUFFER_SIZE, 0);
         close(connectFd);
         goto a;
     } else {
@@ -561,7 +571,6 @@ void incoming_connections_single_process(int listenFd) {
     Client_t * client = &clients[0];
     client_init(client, connectFd);
 
-
     printf("Client %d connected\n", client->client_id);
     chat_listen(connectFd, client);
 }
@@ -596,7 +605,7 @@ int main(int argc, char const *argv[])
     int listenFd = socket_init(port);
     
     LISTENFD = listenFd;
-    // incoming_connections_single_process(listenFd);
-    incoming_connections(listenFd);
+    incoming_connections_single_process(listenFd);
+    // incoming_connections(listenFd);
     return 0;
 }
