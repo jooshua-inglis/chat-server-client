@@ -95,6 +95,7 @@ void user_int(User_t* user_ptr) {
         user_ptr->chanels[i] = 0;
     }
     pthread_mutex_init(&user_ptr->port_mutex, NULL);
+    pthread_mutex_unlock(&user_ptr->port_mutex);
 }
 
 
@@ -174,10 +175,11 @@ void get_next_message(int channelId, User_t* user) {
     send_data(user, buffer);
     recv(user->connectionFd, buffer, BUFFER_SIZE, 0);
     if (buffer[0] == '\0') {
-        printf("send nothing\n");
+        printf("\rsend nothing\n> ");
     } else {
-        printf("%s\n", buffer);
+        printf("\r%s\n> ", buffer);
     }
+    fflush(stdout);
     
 }
 
@@ -315,6 +317,8 @@ void user_input(User_t *user_ptr)
 
     while (1) {
         char com[100];
+        printf("\r> ");
+        fflush(stdout);
         get_inputs(com, 100);
         strtok(com, " ");
 
@@ -409,6 +413,7 @@ int main(int argc, char **argv)
     char *serverName = argv[1];
     User_t user;
 
+    user_int(&user);
     connect_to_server(serverName, port, &user);
     user_input(&user);
     quit(&user);

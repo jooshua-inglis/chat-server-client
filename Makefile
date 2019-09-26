@@ -9,6 +9,9 @@ server: server.c
 client: client.c
 	${CC} $@.c ${CFLAGS} ${clientObjects} -o $@
 
+scratch: scratch.c
+	${CC} $@.c ${CFLAGS} ${clientObjects} -o $@
+
 clean:
 	rm -f *.o
 	rm -f server client
