@@ -22,12 +22,12 @@ int exiting = 0;
 //                              USER AND CONNECTIONS
 // ==============================================================================
 
-typedef struct next_job Next_job_t;
-typedef struct list List_t;
+typedef struct next_job next_job_t;
+typedef struct list list_t;
 
 struct list {
-    Next_job_t* head;
-    Next_job_t* tail;
+    next_job_t* head;
+    next_job_t* tail;
 };
 
 typedef struct user {
@@ -38,13 +38,13 @@ typedef struct user {
     int client_id;
 
     sem_t sem;
-    List_t list;
+    list_t list;
 
     pthread_mutex_t port_mutex;
-} User_t;
+} user_t;
 
 
-int connect_to_server(char *server_name, int port, User_t *user_ptr)
+int connect_to_server(char *server_name, int port, user_t *user_ptr)
 {
     struct sockaddr_in serverAddr;
 
@@ -90,7 +90,7 @@ int connect_to_server(char *server_name, int port, User_t *user_ptr)
     return sockFd;
 }
 
-void user_int(User_t* user_ptr) {
+void user_int(user_t* user_ptr) {
     for (int i = 0; i < 256; i++) {
         user_ptr->chanels[i] = 0;
     }
@@ -104,7 +104,7 @@ void user_int(User_t* user_ptr) {
 // ==============================================================================
 
 
-int send_data(User_t* user, char* data) {
+int send_data(user_t* user, char* data) {
     char buffer[BUFFER_SIZE];
     int sockFd = user->connectionFd;
     int err;
@@ -129,12 +129,12 @@ int send_data(User_t* user, char* data) {
     return 0;
 }
 
-int recive_data(User_t* user, int cha, char* data) {
+int recive_data(user_t* user, int cha, char* data) {
 
 }
 
 
-int subscription(int channelId, User_t* user, int request) {
+int subscription(int channelId, user_t* user, int request) {
     if (channelId > 255 || channelId < 0) {
         printf("Invalid channel: %d", channelId);
         return -2;
@@ -155,7 +155,7 @@ int subscription(int channelId, User_t* user, int request) {
 
 }
 
-void subscribe_to(int channelId, User_t* user) {
+void subscribe_to(int channelId, user_t* user) {
     int error = subscription(channelId, user, Sub);
     if (error == 0) {
         printf("Subscribed to channel %d\n", channelId);
@@ -164,7 +164,7 @@ void subscribe_to(int channelId, User_t* user) {
     }
 }
 
-void unsubscribe_from(int channelId, User_t* user) {
+void unsubscribe_from(int channelId, user_t* user) {
     int error = subscription(channelId, user, UnSub);
     if (error == 0) {
         printf("Unsubscribed to channel %d\n", channelId);
@@ -173,12 +173,12 @@ void unsubscribe_from(int channelId, User_t* user) {
     }
 }
 
-void list_channels(User_t* user) {
+void list_channels(user_t* user) {
     // TODO implement list channels
 }
 
 // If channelId is -1 then get the message of all the channels
-void get_next_message(int channelId, User_t* user) {
+void get_next_message(int channelId, user_t* user) {
     char buffer[BUFFER_SIZE];
     sprintf(buffer, "%d%03d", NextId, channelId);
     send_data(user, buffer);
@@ -194,14 +194,14 @@ void get_next_message(int channelId, User_t* user) {
     fflush(stdout);   
 }
 
-void send_message(int channel, User_t* user, char *message) {
+void send_message(int channel, user_t* user, char *message) {
     char buffer[BUFFER_SIZE];
     snprintf(buffer, BUFFER_SIZE, "%d%03d%s", Send, channel, message);
     send_data(user, buffer);
 }
 
 
-void live_feed(int channelId, User_t* user) {
+void live_feed(int channelId, user_t* user) {
     char buffer[BUFFER_SIZE];
     snprintf(buffer, BUFFER_SIZE, "%d%03d", LivefeedId, channelId);
     send_data(user,buffer);
@@ -221,19 +221,19 @@ void live_feed(int channelId, User_t* user) {
 struct next_job {
     int channel;
     int request;
-    Next_job_t* next;
+    next_job_t* next;
 };
 
 struct next_thr {
     sem_t* job_sem;
-    List_t* job_list;
-    User_t* user;
+    list_t* job_list;
+    user_t* user;
 }; 
 
 
-void thread_do(User_t* user) {
+void thread_do(user_t* user) {
     sem_t* job_sem = &user->sem; 
-    List_t* job_list = &user->list;
+    list_t* job_list = &user->list;
 
     int channelId, request;
     while(1) {
@@ -249,18 +249,18 @@ void thread_do(User_t* user) {
         if (request == NextId) { get_next_message(channelId, user); }
         else if (request == LivefeedId) { live_feed(channelId, user); }
 
-        Next_job_t* old_job = job_list->head;
+        next_job_t* old_job = job_list->head;
         job_list->head = job_list->head->next;
         free(old_job);
     }
 }
 
-void add_job(User_t* user, int channel, int request) {
-    Next_job_t* job = malloc(sizeof(Next_job_t));
+void add_job(user_t* user, int channel, int request) {
+    next_job_t* job = malloc(sizeof(next_job_t));
     job->channel = channel;
     job->request = request;
     job->next = NULL;
-    List_t* list = &user->list;
+    list_t* list = &user->list;
     if (list->head == NULL) {
         list->tail = job;
         list->head = job;
@@ -271,15 +271,15 @@ void add_job(User_t* user, int channel, int request) {
     sem_post(&user->sem);
 }
 
-void pnext(User_t* user, int channel) {
+void pnext(user_t* user, int channel) {
     add_job(user, channel, NextId);
 }
 
-void plivefeed(User_t* user, int channel) {
+void plivefeed(user_t* user, int channel) {
     add_job(user, channel, LivefeedId);
 }
 
-void next_init(User_t* user) {
+void next_init(user_t* user) {
     sem_init(&user->sem, 0, 0);
 
     user->list.head = NULL;
@@ -289,9 +289,9 @@ void next_init(User_t* user) {
     pthread_create(&thread, NULL, (void * (*) (void * )) thread_do, user);
 }
 
-void quit(User_t* user);
+void quit(user_t* user);
 
-void livefeed_listen(User_t* user) {
+void livefeed_listen(user_t* user) {
     char buffer[BUFFER_SIZE];
     while(1) {
         recv(user->connectionFd, buffer, BUFFER_SIZE, MSG_PEEK);
@@ -306,7 +306,7 @@ void livefeed_listen(User_t* user) {
     }
 }
 
-void livefeed_init(User_t* user) {
+void livefeed_init(user_t* user) {
     pthread_t thread;
     pthread_create(&thread, NULL, (void * (*) (void * )) livefeed_listen, user);
 }
@@ -319,7 +319,7 @@ void sigin_handler(int sig) {
     exiting = 1;
 }
 
-void quit(User_t* user) {
+void quit(user_t* user) {
     printf("\rBye         \n");
     char buffer[10];
     send(user->connectionFd, "CLOSE", BUFFER_SIZE, 0);
@@ -361,7 +361,7 @@ int get_channel_id(char* param) {
 
 
 
-void user_input(User_t *user_ptr)
+void user_input(user_t *user_ptr)
 {
     char cmd[100];
     next_init(user_ptr);
@@ -462,7 +462,7 @@ int main(int argc, char **argv)
 
     int port = atoi(argv[2]);
     char *serverName = argv[1];
-    User_t user;
+    user_t user;
 
     user_int(&user);
     connect_to_server(serverName, port, &user);

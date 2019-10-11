@@ -40,28 +40,28 @@ typedef struct message {
     char message[MESSAGE_SIZE]; 
     int time;
     int pos;
-} Message_t;
+} message_t;
 
-typedef struct node Node_t;
+typedef struct node node_t;
 
 typedef struct channel {
-    Message_t messages[CHANNAL_INIT_SIZE];
+    message_t messages[CHANNAL_INIT_SIZE];
     size_t pos;
     int shm_sg;
     char  shm_name[8];
-} Channel_t;
+} channel_t;
 
 
-Channel_t* channels[MAX_CHANNELS];
+channel_t* channels[MAX_CHANNELS];
 int chat_mem;
 
-Channel_t* channel_memory_init(int i) {
-    Channel_t* channel;
+channel_t* channel_shm_init(int i) {
+    channel_t* channel;
     char name[8];
     sprintf(name, SHARED_CHAT_NAME, i);
     int shm_sg = shm_open(name, O_CREAT | O_RDWR, 0666);
-    ftruncate(shm_sg, sizeof(Channel_t));
-    channel = mmap(0, sizeof(Channel_t), PROT_WRITE, MAP_SHARED, shm_sg, 0);
+    ftruncate(shm_sg, sizeof(channel_t));
+    channel = mmap(0, sizeof(channel_t), PROT_WRITE, MAP_SHARED, shm_sg, 0);
     sprintf(channel->shm_name, name);
     return channel;
 }
@@ -74,27 +74,31 @@ void channel_close() {
 
 void channel_init() {
     for (int i = 0; i < MAX_CHANNELS; ++i) {
-        channels[i] = channel_memory_init(i);
+        channels[i] = channel_shm_init(i);
         channels[i]->pos = 0;
     }
 }
 
-void message_print(Message_t message) {
+void message_print(message_t message) {
     printf("#%d: %s\n", message.client_id, message.message);
 }
 
 void channel_print(int channel) {
-    Channel_t* c = channels[channel];
+    channel_t* c = channels[channel];
     for (int i = 0; i < c->pos; ++i) {
         message_print(c->messages[i]);
     }
 }
 
-Message_t* message_put(int channel , Message_t message) {
-    Channel_t* c = channels[channel];
+message_t* message_put(int channel , message_t message) {
+    channel_t* c = channels[channel];
     message.pos = c->pos;
     c->messages[c->pos] = message; 
-    return &c->messages[c->pos++];
+
+    int pos = c->pos;
+    c->pos = (c->pos + 1) % CHANNAL_INIT_SIZE;
+
+    return &c->messages[pos];
 }
 
 // ===========================================================================
@@ -122,21 +126,22 @@ typedef struct client {
     bool livefeed_all;
     sem_t exit_sem;
     sem_t buffer_sem;
-} Client_t;
+} client_t;
 
 
 #define SHARED_PRCOESS_NAME "PROCESSES"
-Client_t *clients;
+client_t *clients;
 int processes_mem;
 
-void shared_memory_init() {
+void client_shm_init() {
     processes_mem = shm_open(SHARED_PRCOESS_NAME, O_CREAT | O_RDWR, 0666);
-    ftruncate(processes_mem, MAX_USES * sizeof(Client_t));
-    clients = mmap(0, MAX_USES * sizeof(Client_t), PROT_WRITE, MAP_SHARED, processes_mem, 0);
+    ftruncate(processes_mem, MAX_USES * sizeof(client_t));
+    clients = mmap(0, MAX_USES * sizeof(client_t), PROT_WRITE, MAP_SHARED, processes_mem, 0);
 }
 
 
 void clients_ready() {
+    client_shm_init();
     for (int i = 0; i < MAX_USES; ++i) { 
         clients[i].free = true; 
         clients[i].client_id = i;
@@ -146,14 +151,14 @@ void clients_ready() {
 }
 
 // returns -1 if no child slot avaliable, else returns client id
-Client_t *client_add() {
+client_t *client_add() {
     for (int i = 0; i < MAX_USES; ++i) {
         if (clients[i].free) { return &clients[i]; }
     }
     return NULL;
 }
 
-void client_close(Client_t* client) {
+void client_close(client_t* client) {
     close(client->connectionFd);
     close(LISTENFD);
     client->free = 1;
@@ -170,7 +175,7 @@ void client_close_all() {
     }
 }
 
-bool is_subscribed(Client_t* client, int c) {
+bool is_subscribed(client_t* client, int c) {
     return client->positions[c] != -1;
 }
 
@@ -185,26 +190,26 @@ bool is_subscribed(Client_t* client, int c) {
 typedef struct message_node message_node_t;
 
 struct message_node {
-    Message_t* message;
+    message_t* message;
     int time;
     message_node_t* next;
 };
 
 struct message_buffer {
-    Message_t *buffer[MSG_QUE_BUFFER_SIZE];
+    message_t *buffer[MSG_QUE_BUFFER_SIZE];
     int writer_pos;
 };
 
 struct message_buffer* mess_buffer;
 
-void que_memory_init() {
+void que_shm_init() {
     int shm_sg = shm_open(MESSAGE_QUE_NAME, O_CREAT | O_RDWR, 0666);
     ftruncate(shm_sg, sizeof(struct message_buffer));
     mess_buffer = mmap(0, sizeof(struct message_buffer), PROT_WRITE, MAP_SHARED, shm_sg, 0);
     mess_buffer->writer_pos = 0;
 }
 
-void buffer_add(Message_t* message, struct message_buffer* buffer) {
+void buffer_add(message_t* message, struct message_buffer* buffer) {
     buffer->buffer[buffer->writer_pos++] = message;
     for (int i = 0; i < MAX_USES; ++i) {
         if (clients[i].pid != 0) sem_post(&clients[i].buffer_sem);
@@ -212,12 +217,12 @@ void buffer_add(Message_t* message, struct message_buffer* buffer) {
 }
 
 
-bool is_livefeed(Client_t* client, int channel) {
+bool is_livefeed(client_t* client, int channel) {
     return client->livefeed_all || client->livefeeds[channel];
 }
 
 
-Message_t* que_add(Client_t* client) {
+message_t* que_add(client_t* client) {
     message_que_t* que = &client->que;
     message_node_t* node = malloc(sizeof(message_node_t));
     node->message = mess_buffer->buffer[client->buffer_pos++];
@@ -247,7 +252,7 @@ bool _message_read(int mess_pos, int read_pos, int write_pos) {
     else return write_pos <= mess_pos && mess_pos < read_pos;
 }
 
-bool message_read(Client_t* client, Message_t* message) {
+bool message_read(client_t* client, message_t* message) {
     int mess_pos = message->pos;
     int read_pos = client->positions[message->channel];
     int write_pos = channels[message->channel]->pos;
@@ -256,18 +261,18 @@ bool message_read(Client_t* client, Message_t* message) {
 }
 
 
-void message_reader(Client_t* client) {
+void message_reader(client_t* client) {
     while(1) {
         sem_wait(&client->buffer_sem);
         if (client->buffer_pos == mess_buffer->writer_pos) continue;
 
         else {
-            Message_t* new_message = que_add(client);
+            message_t* new_message = que_add(client);
         }
     }
 }
 
-void next_time(Client_t* client, message_que_t *m) {
+void next_time(client_t* client, message_que_t *m) {
     if (m->head == NULL ) {
         send(client->connectionFd, "", BUFFER_SIZE, 0);
         return;
@@ -293,7 +298,7 @@ void next_time(Client_t* client, message_que_t *m) {
 // ===========================================================================
 
 
-int subscribe(Client_t* client, int c) {
+int subscribe(client_t* client, int c) {
     if (!is_subscribed(client, c)) {
         client->positions[c] = channels[c]->pos;
         printf("[%d] subbed to channel %d\n", client->client_id, c);
@@ -301,7 +306,7 @@ int subscribe(Client_t* client, int c) {
     } else return -1;
 }
 
-int unsubscribe(Client_t* client, int c) {
+int unsubscribe(client_t* client, int c) {
     if (is_subscribed(client, c)) {
         client->positions[c] = -1;
         printf("%d subbed to channel %d\n", client->client_id, c);
@@ -311,21 +316,24 @@ int unsubscribe(Client_t* client, int c) {
 
 }
 
-int add_message(int channel, char * message, Client_t * client) {
-    Message_t m;
+int add_message(int channel, char * message, client_t* client) {
+    message_t m;
     m.channel = channel;
     m.client_id = client->client_id;
     m.time = time(NULL);
     printf("[%d] posted %s to channel %d\n", client->client_id, message, channel);
     sprintf(m.message, message);
 
-    Message_t* m_ptr = message_put(channel, m);
+    message_t* m_ptr = message_put(channel, m);
+
+    client->positions[channel] = (client->positions[channel] + 1) % CHANNAL_INIT_SIZE;
+
     buffer_add(m_ptr, mess_buffer);
     return 0;
 }
 
-void next_id(int c, Client_t* client) {
-    Channel_t *channel = channels[c];
+void next_id(int c, client_t* client) {
+    channel_t *channel = channels[c];
     if (channel->pos == client->positions[c]){
         send(client->connectionFd, "", BUFFER_SIZE, 0);
         return;
@@ -335,32 +343,32 @@ void next_id(int c, Client_t* client) {
         send(client->connectionFd, buffer, BUFFER_SIZE, 0);
     }
     else {
-        Message_t message = channel->messages[client->positions[c]++];
+        message_t message = channel->messages[client->positions[c]++];
         send(client->connectionFd, message.message, BUFFER_SIZE, 0);
     }
 }
 
 
-void catch_up(Client_t* client, int c) {
+void catch_up(client_t* client, int c) {
     if (c == -1) {
         while (client->que.head != NULL) {
             next_time(client, &client->que);
         }
     } else {
 
-        Channel_t* channel = channels[c];
+        channel_t* channel = channels[c];
         while (client->positions[c] != channel->pos) {
             next_id(c, client);
         }
     }
 }
 
-void remove_livefeed(Client_t* client, int channel) {
+void remove_livefeed(client_t* client, int channel) {
     if (channel == -1) client->livefeed_all = false;
     else client->livefeeds[channel] = false;
 }
 
-void add_livefeed(Client_t* client, int channel) {
+void add_livefeed(client_t* client, int channel) {
     char buffer[BUFFER_SIZE];
     if (channel == -1) { 
         sprintf(buffer, "You are listening to all channels");
@@ -420,13 +428,13 @@ int socket_init(int port) {
     return listenFd;
 }
 
-void exit_wait(Client_t* client) {
+void exit_wait(client_t* client) {
     sem_wait(&client->exit_sem);
     send(client->connectionFd, "CLOSE", BUFFER_SIZE, 0);
     exit(0);
 }
 
-void client_init(Client_t* client, int connectFd) {
+void client_init(client_t* client, int connectFd) {
     client->connectionFd = connectFd;
     client->free = 0;
     client->pid = getpid();
@@ -447,7 +455,7 @@ void client_init(Client_t* client, int connectFd) {
 
 #define REQUESET_BITS 1
 
-void chat_listen(int connectFd, Client_t *client) {
+void chat_listen(int connectFd, client_t *client) {
     pthread_t thread;
     pthread_create(&thread, NULL, (void * (*) (void *) )message_reader, client);
 
@@ -521,7 +529,7 @@ void chat_listen(int connectFd, Client_t *client) {
 void incoming_connections(int listenFd) {
     pid_t pid;
 
-    Client_t *client_ptr;
+    client_t *client_ptr;
     int connectFd;
     a:
     connectFd = accept(listenFd, NULL, NULL);
@@ -555,9 +563,7 @@ void incoming_connections(int listenFd) {
 
 void incoming_connections_single_process(int listenFd) {
     pid_t pid;
-
-    a:
-    printf("Waiting for another connection\n");
+    
     int connectFd = accept(listenFd, NULL, NULL);
 
     if (connectFd == -1) {
@@ -568,7 +574,7 @@ void incoming_connections_single_process(int listenFd) {
     sprintf(buffer, "%d", 0);
     send(connectFd, buffer, BUFFER_SIZE, 0);
 
-    Client_t * client = &clients[0];
+    client_t * client = &clients[0];
     client_init(client, connectFd);
 
     printf("Client %d connected\n", client->client_id);
@@ -587,25 +593,26 @@ void chat_shutdown() {
 }
 
 
-int main(int argc, char const *argv[])
-{
-    shared_memory_init();
-    channel_init();
-    clients_ready();
-    que_memory_init();
+int main(int argc, char const *argv[]) {
     signal(SIGINT, chat_shutdown);
-    if (argc != 2) {
+
+    if (argc < 2) {
         printf("server takes in 1 inputs, you have %d\n", argc);
         return -1;
     }
+
+    channel_init();
+    clients_ready();
+    que_shm_init();
 
     int port = atoi(argv[1]);
     printf("Creating server on port %d\n", port);
 
     int listenFd = socket_init(port);
-    
     LISTENFD = listenFd;
-    incoming_connections_single_process(listenFd);
-    // incoming_connections(listenFd);
+
+    if (argc == 3) incoming_connections_single_process(listenFd);
+    else  incoming_connections(listenFd);
+
     return 0;
 }
