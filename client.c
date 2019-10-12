@@ -104,53 +104,57 @@ void user_int(user_t* user_ptr) {
 // ==============================================================================
 
 
-int send_data(user_t* user, char* data) {
-    char buffer[BUFFER_SIZE];
+int send_request(user_t* user, char* data) {
     int sockFd = user->connectionFd;
     int err;
 
-    snprintf(buffer, BUFFER_SIZE, data);
-
-    pthread_mutex_lock(&user->port_mutex);
-
-    if (send(sockFd, buffer, BUFFER_SIZE, 0) == -1) {
+    if (send(sockFd, data, REQ_BUF_SIZE, 0) == -1) {
         printf("failed to send message\n");
         return -1;
     }
-    recv(sockFd, buffer, BUFFER_SIZE, 0);
+    recv(sockFd, data, REQ_BUF_SIZE, 0);
 
-    pthread_mutex_unlock(&user->port_mutex);
-
-    if (strcmp(buffer, "SUCCESS"))
-    {
-        printf("Failed to varify message\n");
-        return -1;
+    if (strcmp(data, "0")) {
+        printf("Failed to make request\n");
+        close(sockFd);
+        exit(0);
     }
     return 0;
 }
 
-int recive_data(user_t* user, int cha, char* data) {
+/**
+ * request is the request type, channel is the channel the user wants, data is the data
+ * to be sent, NULL if no data, data_size is the size of data
+ * 
+ * Returns the size of the data to be send back from the server, 0 if no data
+ */
+int request(user_t* user, int request, int channel, char* data, int data_size) {
 
+    char buffer[REQ_BUF_SIZE];
+    snprintf(buffer, REQ_BUF_SIZE, "%d%03d%03d", request, channel, data_size);
+    send_request(user, buffer);
+    if (data_size > 0 && data != NULL) {
+        send(user->connectionFd, data, data_size, 0);
+    }
+
+    recv(user->connectionFd, buffer, REQ_BUF_SIZE, 0);  
+
+    return atoi(buffer);
 }
 
-
-int subscription(int channelId, user_t* user, int request) {
+int subscription(int channelId, user_t* user, int req) {
     if (channelId > 255 || channelId < 0) {
         printf("Invalid channel: %d", channelId);
         return -2;
     }
+    int size = request(user, req, channelId, NULL, 0);
 
-    char buffer[BUFFER_SIZE];
-    snprintf(buffer, BUFFER_SIZE, "%d%03d", request, channelId);
-    send_data(user, buffer);
-    pthread_mutex_lock(&user->port_mutex);
-    recv(user->connectionFd, buffer, BUFFER_SIZE, 0);
-    if (strcmp(buffer, "SUCCESS") == 0) {
-        pthread_mutex_unlock(&user->port_mutex);
+    char buffer[size];
+    recv(user->connectionFd, buffer, size, 0);
 
+    if (strcmp(buffer, "0") == 0) {
         return 0;
     }
-    pthread_mutex_unlock(&user->port_mutex);
     return -1;
 
 }
@@ -179,37 +183,33 @@ void list_channels(user_t* user) {
 
 // If channelId is -1 then get the message of all the channels
 void get_next_message(int channelId, user_t* user) {
-    char buffer[BUFFER_SIZE];
-    sprintf(buffer, "%d%03d", NextId, channelId);
-    send_data(user, buffer);
-    pthread_mutex_lock(&user->port_mutex);
-    recv(user->connectionFd, buffer, BUFFER_SIZE, 0);
-    if (buffer[0] == '\0') {
-        printf("\rsend nothing\n> ");
-    } else {
-        printf("\r%s\n> ", buffer);
-    }
-    pthread_mutex_unlock(&user->port_mutex);
+    int size = request(user, NextId, channelId, NULL, 0);
 
+    if (size == 0) {
+        printf("\rAll caught up\n> ");
+    } else {
+        char buffer[size];
+        recv(user->connectionFd, buffer, size, 0);
+        if (strcmp(buffer, "-1") == 0) printf("\rNot Subbed\n> ");
+        else printf("\r%s\n> ", buffer);
+    }
     fflush(stdout);   
 }
 
 void send_message(int channel, user_t* user, char *message) {
-    char buffer[BUFFER_SIZE];
-    snprintf(buffer, BUFFER_SIZE, "%d%03d%s", Send, channel, message);
-    send_data(user, buffer);
+    char buffer[MESSAGE_SIZE];
+    request(user, Send, channel, message, MESSAGE_SIZE);
 }
 
 
 void live_feed(int channelId, user_t* user) {
-    char buffer[BUFFER_SIZE];
-    snprintf(buffer, BUFFER_SIZE, "%d%03d", LivefeedId, channelId);
-    send_data(user,buffer);
-    pthread_mutex_lock(&user->port_mutex);
-    recv(user->connectionFd, buffer, BUFFER_SIZE, 0);
+    int size = request(user, LivefeedId, channelId, NULL, 0);
+    
+    char* buffer[size];
+
+    recv(user->connectionFd, buffer, size, 0);
     printf("\r%s\n> ", buffer);
     fflush(stdout);
-    pthread_mutex_unlock(&user->port_mutex);
 }
 
 
@@ -246,8 +246,10 @@ void thread_do(user_t* user) {
 
         channelId = job_list->head->channel;
         request = job_list->head->request;
+        pthread_mutex_lock(&user->port_mutex);
         if (request == NextId) { get_next_message(channelId, user); }
         else if (request == LivefeedId) { live_feed(channelId, user); }
+        pthread_mutex_unlock(&user->port_mutex);
 
         next_job_t* old_job = job_list->head;
         job_list->head = job_list->head->next;
@@ -292,14 +294,15 @@ void next_init(user_t* user) {
 void quit(user_t* user);
 
 void livefeed_listen(user_t* user) {
-    char buffer[BUFFER_SIZE];
+    char buffer[MESSAGE_SIZE];
     while(1) {
-        recv(user->connectionFd, buffer, BUFFER_SIZE, MSG_PEEK);
+        recv(user->connectionFd, buffer, MESSAGE_SIZE, MSG_PEEK);
         if (strcmp(buffer, "CLOSE") == 0) {
             quit(user);
         }
         if (pthread_mutex_trylock(&user->port_mutex) == EBUSY) continue;
-        int err = recv(user->connectionFd, buffer, BUFFER_SIZE, 0);
+        recv(user->connectionFd, buffer, MESSAGE_SIZE, 0);
+
         printf("\r%s\n> ", buffer);
         fflush(stdout);
         pthread_mutex_unlock(&user->port_mutex);
@@ -370,7 +373,10 @@ void user_input(user_t *user_ptr)
         char com[100];
         printf("\r> ");
         fflush(stdout);
+        pthread_mutex_unlock(&user_ptr->port_mutex);
+
         get_inputs(com, 100);
+        pthread_mutex_lock(&user_ptr->port_mutex);
         strtok(com, " ");
 
         if (exiting) quit(user_ptr);
@@ -440,9 +446,6 @@ void user_input(user_t *user_ptr)
         }
         else if (strcasecmp(com, "BYE") == 0) {
             quit(user_ptr);
-        }
-        else if (strcasecmp(com, "TEST") == 0) {
-            send_data(user_ptr, "0001test data");
         }
         else {
             printf("Not valid command\n");
