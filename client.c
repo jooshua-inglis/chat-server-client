@@ -178,7 +178,11 @@ void unsubscribe_from(int channelId, user_t* user) {
 }
 
 void list_channels(user_t* user) {
-    // TODO implement list channels
+    size_t size = request(user, List, 0, NULL, 0);
+
+    char buffer[size];
+    recv(user->connectionFd, buffer, size, 0);
+    printf("\rsubbed to %s\n> ", buffer);
 }
 
 // If channelId is -1 then get the message of all the channels
@@ -443,6 +447,9 @@ void user_input(user_t *user_ptr)
                 int id = get_channel_id(channel);
                 if (id != -1) send_message(id, user_ptr, message);
             }
+        }
+        else if (strcasecmp(com, "LIST") == 0) {
+            list_channels(user_ptr);
         }
         else if (strcasecmp(com, "BYE") == 0) {
             quit(user_ptr);

@@ -263,8 +263,6 @@ message_t* que_add(client_t* client) {
     return node->message;
 }
 
-
-
 void message_reader(client_t* client) {
     while(1) {
         sem_wait(&client->buffer_sem);
@@ -361,6 +359,28 @@ void next_id(int c, client_t* client) {
     }
 }
 
+void list_sub(client_t* client) {
+    char buffer[MESSAGE_SIZE];
+    bool first = true;
+    size_t pos = 0;
+    for (int i = 0; i<MAX_CHANNELS;++i) {
+        if (is_subscribed(client, i)) {
+            if (first) {
+                sprintf(buffer + pos, "%d", i);
+                pos += 1;
+                first = false;
+            } else {
+                sprintf(buffer + pos, ", %d", i);
+                pos += 3;
+            }
+        }
+    }
+    if (pos == 0) {
+        return_data(client, "None", REQ_BUF_SIZE);
+    } else {
+        return_data(client, buffer, strlen(buffer) + 1);
+    }
+}
 
 void catch_up(client_t* client, int c) {
     if (c == -1) {
@@ -525,6 +545,10 @@ void chat_listen(int connectFd, client_t *client) {
             } else {
                 return_data(client, "0", REQ_BUF_SIZE);
             }
+        }
+
+        else if (request == List) {
+            list_sub(client);
         }
 
         if (strcmp("CLOSE", req_buffer) == 0) {

@@ -1,5 +1,5 @@
 enum Request {
-    Send, Sub, UnSub, NextId, LivefeedId, NextNotUsed, LivefeedNotUSed, Bye
+    Send, Sub, UnSub, List, NextId, LivefeedId, NextNotUsed, LivefeedNotUSed, Bye
 };
 
 #define BUFFER_SIZE 64
