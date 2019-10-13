@@ -44,13 +44,11 @@ typedef struct user {
 } user_t;
 
 
-int connect_to_server(char *server_name, int port, user_t *user_ptr)
-{
+int connect_to_server(char *server_name, int port, user_t *user_ptr) {
     struct sockaddr_in serverAddr;
 
     int sockFd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockFd == -1)
-    {
+    if (sockFd == -1) {
         fprintf(stderr, "Failed to create socket\n");
         exit(1);
     }
@@ -68,9 +66,9 @@ int connect_to_server(char *server_name, int port, user_t *user_ptr)
         exit(1);
     }
 
-    char buffer[BUFFER_SIZE];
+    char buffer[REQ_BUF_SIZE];
     printf("Getting confimation");
-    recv(sockFd, buffer, BUFFER_SIZE, 0);
+    recv(sockFd, buffer, REQ_BUF_SIZE, 0);
     printf(" done\n");
 
     if (strcmp(buffer, "SERVER FULL") == 0) {
@@ -78,8 +76,7 @@ int connect_to_server(char *server_name, int port, user_t *user_ptr)
         close(sockFd);
         exit(1);
     }
-
-    
+   
     printf("Connected to server\nYour id is %s\n", buffer);
     
     user_ptr->client_id = atoi(buffer);
@@ -129,7 +126,6 @@ int send_request(user_t* user, char* data) {
  * Returns the size of the data to be send back from the server, 0 if no data
  */
 int request(user_t* user, int request, int channel, char* data, int data_size) {
-
     char buffer[REQ_BUF_SIZE];
     snprintf(buffer, REQ_BUF_SIZE, "%d%03d%03d", request, channel, data_size);
     send_request(user, buffer);
@@ -172,7 +168,7 @@ void unsubscribe_from(int channelId, user_t* user) {
     int error = subscription(channelId, user, UnSub);
     if (error == 0) {
         printf("Unsubscribed to channel %d\n", channelId);
-    } else if(error == -1) {
+    } else if (error == -1) {
         printf("Not subscribed to channel %d\n", channelId);
     }
 }
@@ -194,8 +190,11 @@ void get_next_message(int channelId, user_t* user) {
     } else {
         char buffer[size];
         recv(user->connectionFd, buffer, size, 0);
-        if (strcmp(buffer, "-1") == 0) printf("\rNot Subbed\n> ");
-        else printf("\r%s\n> ", buffer);
+        if (strcmp(buffer, "-1") == 0) {
+            printf("\rNot Subbed\n> ");
+        } else {
+            printf("\r%s\n> ", buffer);
+        }
     }
     fflush(stdout);   
 }
@@ -251,8 +250,11 @@ void thread_do(user_t* user) {
         channelId = job_list->head->channel;
         request = job_list->head->request;
         pthread_mutex_lock(&user->port_mutex);
-        if (request == NextId) { get_next_message(channelId, user); }
-        else if (request == LivefeedId) { live_feed(channelId, user); }
+        if (request == NextId) {
+            get_next_message(channelId, user);
+        } else if (request == LivefeedId) {
+            live_feed(channelId, user);
+        }
         pthread_mutex_unlock(&user->port_mutex);
 
         next_job_t* old_job = job_list->head;
@@ -304,7 +306,9 @@ void livefeed_listen(user_t* user) {
         if (strcmp(buffer, "CLOSE") == 0) {
             quit(user);
         }
-        if (pthread_mutex_trylock(&user->port_mutex) == EBUSY) continue;
+        if (pthread_mutex_trylock(&user->port_mutex) == EBUSY) {
+            continue;
+        }
         recv(user->connectionFd, buffer, MESSAGE_SIZE, 0);
 
         printf("\r%s\n> ", buffer);
@@ -329,7 +333,7 @@ void sigin_handler(int sig) {
 void quit(user_t* user) {
     printf("\rBye         \n");
     char buffer[10];
-    send(user->connectionFd, "CLOSE", BUFFER_SIZE, 0);
+    send(user->connectionFd, "CLOSE", REQ_BUF_SIZE, 0);
     close(user->connectionFd);
     exit(0);
 }
@@ -343,13 +347,11 @@ void get_inputs(char *buffer, int buffer_size)
         if (c == EOF || c == '\n') {
             buffer[position] = '\0';
             return;
-        }
-        else {
+        } else {
             buffer[position] = c;
         }
         position++;
     }
-
     if (position >= buffer_size) {
         return;
     }
@@ -362,8 +364,9 @@ int get_channel_id(char* param) {
         printf("Invalid channel: %s\n", param);
         return -1;
     }
-    else
+    else {
         return channelId;
+    }
 }
 
 
@@ -384,7 +387,6 @@ void user_input(user_t *user_ptr)
         strtok(com, " ");
 
         if (exiting) quit(user_ptr);
-
 
         if (strcasecmp(com, "SUB") == 0) {
             char *param = strtok(NULL, " ");
