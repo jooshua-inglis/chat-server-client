@@ -22,6 +22,7 @@
 #define MAX_CHANNELS 256
 
 int LISTENFD;
+bool debug = false;
 
 // ===========================================================================
 //                                   CHAT LOG 
@@ -94,7 +95,6 @@ message_t* message_put(int channel , message_t message) {
 
     int pos = c->pos;
     c->pos = (c->pos + 1) % CHANNAL_INIT_SIZE;
-
     return &c->messages[pos];
 }
 
@@ -282,35 +282,15 @@ void message_reader(client_t* client) {
     }
 }
 
-void next_time(client_t* client, message_que_t *m) {
-    if (m->head == NULL ) {
-        send(client->connectionFd, "", MESSAGE_SIZE, 0);
-        return;
-    }
-    message_node_t* node = m->head;
-    if (node->message->time != node->time || message_read(client, node->message)) {
-        m->head = node->next;
-        free(node);
-        next_time(client, m);
-        return;
-    } else {
-        send(client->connectionFd, node->message->message, MESSAGE_SIZE, 0);
-        client->positions[node->message->channel]++;
-        m->head = node->next;
-        free(node);
-        return;
-    }
-}
-
 
 // ===========================================================================
 //                                   REQUESTS 
 // ===========================================================================
 
 
-void return_data(client_t* client, char* data, int data_size) {
+void return_data(client_t* client, char* data, int data_size, int code) {
     char buffer[REQ_BUF_SIZE];
-    sprintf(buffer, "%d", data_size);
+    sprintf(buffer, "%05d%05d", data_size);
     send(client->connectionFd, buffer, REQ_BUF_SIZE, 0);
     if (data_size > 0 ) {
         send(client->connectionFd, data, data_size, 0);
@@ -318,24 +298,30 @@ void return_data(client_t* client, char* data, int data_size) {
 }
 
 int subscribe(client_t* client, int c) {
+    int code;
     if (!is_subscribed(client, c)) {
         client->positions[c] = channels[c]->pos;
         printf("[%d] subbed to channel %d\n", client->client_id, c);
-        return 0;
+        code = 0;
     } else {
-        return -1;
+        code = -1;
     }
+    return_data(client, NULL, 0, code);
+    return code;
+
 }
 
 int unsubscribe(client_t* client, int c) {
+    int code;
     if (is_subscribed(client, c)) {
         client->positions[c] = -1;
         printf("%d subbed to channel %d\n", client->client_id, c);
-
-        return 0;
+        code = 0;
     } else {
-        return -1;
+        code = -1;
     }
+    return_data(client, NULL, 0, code);
+    return code;
 }
 
 int add_message(int channel, char * message, client_t* client) {
@@ -348,23 +334,47 @@ int add_message(int channel, char * message, client_t* client) {
 
     message_t* m_ptr = message_put(channel, m);
 
-    client->positions[channel] = (client->positions[channel] + 1) % CHANNAL_INIT_SIZE;
+    if (is_subscribed(client, channel) && !debug) {
+        client->positions[channel] = (client->positions[channel] + 1) % CHANNAL_INIT_SIZE;
+    }
 
     buffer_add(m_ptr, mess_buffer);
+    
+    return_data(client, NULL, 0, 0);
     return 0;
+}
+
+void next_time(client_t* client, message_que_t *m) {
+    if (m->head == NULL ) {
+        return_data(client, NULL, 0, 2);
+        return;
+    }
+    message_node_t* node = m->head;
+    if (!is_subscribed(client, node->message->channel) || node->message->time != node->time || message_read(client, node->message)) {
+        m->head = node->next;
+        free(node);
+        next_time(client, m);
+        return;
+    } else {
+        return_data(client, node->message->message, MESSAGE_SIZE, 0);
+        client->positions[node->message->channel]++;
+        m->head = node->next;
+        free(node);
+        return;
+    }
 }
 
 void next_id(int c, client_t* client) {
     channel_t *channel = channels[c];
-    if (channel->pos == client->positions[c]){
-        return_data(client, NULL, 0);
+    if (channel->pos == client->positions[c]) { // call caught up
+        return_data(client, NULL, 0, 2);
         return;
-    } else if (!is_subscribed(client, c)) {
-        return_data(client, "-1", REQ_BUF_SIZE);
+    } else if (!is_subscribed(client, c)) { // Not subbed
+        return_data(client, NULL, 0, 1);
         return;
     } else {
         message_t message = channel->messages[client->positions[c]++];
-        return_data(client, message.message, MESSAGE_SIZE);
+        return_data(client, message.message, MESSAGE_SIZE, 0);
         return;
     }
 }
@@ -386,9 +396,9 @@ void list_sub(client_t* client) {
         }
     }
     if (pos == 0) {
-        return_data(client, "None", REQ_BUF_SIZE);
+        return_data(client, NULL, 0, 1);
     } else {
-        return_data(client, buffer, strlen(buffer) + 1);
+        return_data(client, buffer, strlen(buffer) + 1, 0);
     }
 }
 
@@ -415,16 +425,20 @@ void remove_livefeed(client_t* client, int channel) {
 
 void add_livefeed(client_t* client, int channel) {
     if (channel == -1) { 
-        return_data(client, "0", REQ_BUF_SIZE);
+        return_data(client, NULL, 0, 0);
         client->livefeed_all = true;
     } else if (is_subscribed(client, channel)) {
+        if (client->livefeeds[channel]) {
+            return_data(client, NULL, 0, 2);
+            return;
+        }
         client->livefeeds[channel] = true;
         catch_up(client, channel);
 
-        return_data(client, "0", REQ_BUF_SIZE);
+        return_data(client, NULL, 0, 0);
         printf("[%d] is now livefeeding channel %d\n", client->client_id, channel );
     } else {
-        return_data(client, "1", REQ_BUF_SIZE);
+        return_data(client, NULL, 0, 1);
     }
 }
 
@@ -433,14 +447,6 @@ void add_livefeed(client_t* client, int channel) {
 //                               SERVER MAIN 
 // ===========================================================================
 
-int int_range(char* message, int start, int finnish, int* error) {
-    if (start > finnish) {
-        *error = -1;
-    }
-    char buffer[finnish - start]; 
-    snprintf(buffer, finnish - start + 1, message + start);
-    return strtol(buffer, NULL, 0);
-}
 
 int socket_init(int port) {
     struct sockaddr_in serverAddr;
@@ -520,14 +526,12 @@ void chat_listen(int connectFd, client_t *client) {
             
             char buffer[mess_size];
             recv(client->connectionFd, buffer, MESSAGE_SIZE, 0);
-            send(client->connectionFd, "0", REQ_BUF_SIZE, 0);
-
+            
             add_message(channel, buffer, client);
         }
     
         else if (request == NextId) {
             int channel = int_range(req_buffer, 1, 4, NULL);
-
             if (channel != -1)
                 next_id(channel, client);
             else 
@@ -541,20 +545,12 @@ void chat_listen(int connectFd, client_t *client) {
 
         else if (request == Sub) {
             int channel = int_range(req_buffer, 1, 4, NULL);
-            if (subscribe(client, channel) == -1) {
-                return_data(client, "1", REQ_BUF_SIZE);
-            } else {
-                return_data(client, "0", REQ_BUF_SIZE);
-            }
+            subscribe(client, channel);
         }
 
         else if (request == UnSub) {
             int channel = int_range(req_buffer, 1, 4, NULL);
-            if (unsubscribe(client, channel) == -1) {
-                return_data(client, "1", REQ_BUF_SIZE);
-            } else {
-                return_data(client, "0", REQ_BUF_SIZE);
-            }
+            unsubscribe(client, channel);
         }
 
         else if (request == List) {
@@ -656,6 +652,7 @@ int main(int argc, char const *argv[]) {
     LISTENFD = listenFd;
 
     if (argc == 3) {
+        debug = true;
         printf("Launched in debug mode\n");
         incoming_connections_single_process(listenFd);
     } else {

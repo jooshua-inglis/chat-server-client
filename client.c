@@ -119,23 +119,33 @@ int send_request(user_t* user, char* data) {
     return 0;
 }
 
+
+struct reqeust_details {
+    int request;
+    int channel;
+    char* data;
+    int data_size;
+};
+
 /**
  * request is the request type, channel is the channel the user wants, data is the data
  * to be sent, NULL if no data, data_size is the size of data
  * 
- * Returns the size of the data to be send back from the server, 0 if no data
+ * Returns the return code from request of the data to be send back from the server, 0 if no data
  */
-int request(user_t* user, int request, int channel, char* data, int data_size) {
+int request(user_t* user, struct reqeust_details details, size_t* size) {
     char buffer[REQ_BUF_SIZE];
-    snprintf(buffer, REQ_BUF_SIZE, "%d%03d%03d", request, channel, data_size);
+    snprintf(buffer, REQ_BUF_SIZE, "%d%03d%03d", details.request, details.channel, details.data_size);
     send_request(user, buffer);
-    if (data_size > 0 && data != NULL) {
-        send(user->connectionFd, data, data_size, 0);
+    if (details.data_size > 0 && details.data != NULL) {
+        send(user->connectionFd, details.data, details.data_size, 0);
     }
 
     recv(user->connectionFd, buffer, REQ_BUF_SIZE, 0);  
-
-    return atoi(buffer);
+    if (size != NULL) {
+        *size = int_range(buffer, 0, 5, NULL);
+    }
+    return int_range(buffer, 5, 10, NULL);
 }
 
 int subscription(int channelId, user_t* user, int req) {
@@ -143,16 +153,12 @@ int subscription(int channelId, user_t* user, int req) {
         printf("Invalid channel: %d", channelId);
         return -2;
     }
-    int size = request(user, req, channelId, NULL, 0);
+    struct reqeust_details details;
+    details.request = req;
+    details.channel = channelId;
+    details.data_size = 0;
 
-    char buffer[size];
-    recv(user->connectionFd, buffer, size, 0);
-
-    if (strcmp(buffer, "0") == 0) {
-        return 0;
-    }
-    return -1;
-
+    return request(user, details, NULL);
 }
 
 void subscribe_to(int channelId, user_t* user) {
@@ -174,44 +180,70 @@ void unsubscribe_from(int channelId, user_t* user) {
 }
 
 void list_channels(user_t* user) {
-    size_t size = request(user, List, 0, NULL, 0);
+    struct reqeust_details details;
+    details.request = List;
+    details.data_size = 0;
+    details.data = NULL;
 
-    char buffer[size];
-    recv(user->connectionFd, buffer, size, 0);
-    printf("\rsubbed to %s\n> ", buffer);
+    size_t size;
+    if (request(user, details, &size) == 0) {
+        char buffer[size];
+        recv(user->connectionFd, buffer, size, 0);
+        printf("\rSubscribed to %s\n> ", buffer);
+    } else {
+        printf("\rNo subscriptions\n> ");
+    }    
 }
 
 // If channelId is -1 then get the message of all the channels
 void get_next_message(int channelId, user_t* user) {
-    int size = request(user, NextId, channelId, NULL, 0);
+    struct reqeust_details details;
+    details.request = NextId;
+    details.channel = channelId;
+    details.data_size = 0;
 
-    if (size == 0) {
+    size_t size;
+    int code = request(user, details, &size);
+    
+    if (code == 2) {
         printf("\rAll caught up\n> ");
+    } else if (code == 1) {
+        printf("\rNot Subbed\n> ");
     } else {
         char buffer[size];
         recv(user->connectionFd, buffer, size, 0);
-        if (strcmp(buffer, "-1") == 0) {
-            printf("\rNot Subbed\n> ");
-        } else {
-            printf("\r%s\n> ", buffer);
-        }
+        printf("\r%s\n> ", buffer);
     }
     fflush(stdout);   
 }
 
 void send_message(int channel, user_t* user, char *message) {
     char buffer[MESSAGE_SIZE];
-    request(user, Send, channel, message, MESSAGE_SIZE);
+    struct reqeust_details details;
+    details.request = Send;
+    details.channel = channel;
+    details.data = message;
+    details.data_size = MESSAGE_SIZE;
+
+    request(user, details, NULL);
 }
 
 
 void live_feed(int channelId, user_t* user) {
-    int size = request(user, LivefeedId, channelId, NULL, 0);
-    
-    char* buffer[size];
+    struct reqeust_details details;
+    details.channel = channelId;
+    details.request = LivefeedId;
+    details.data_size = 0;
 
-    recv(user->connectionFd, buffer, size, 0);
-    printf("\r%s\n> ", buffer);
+    int code = request(user, details , NULL);
+    
+    if (code == 0) {
+        printf("\rLivefeeding %d\n> ", channelId);
+    } else if (code == 1) {
+        printf("\rYou are not subbed to channel %d\n> ", channelId);
+    } else if (code == 2) {
+        printf("\rYou are already livefeeding channel %d\n> ", channelId);
+    }
     fflush(stdout);
 }
 
@@ -369,15 +401,12 @@ int get_channel_id(char* param) {
     }
 }
 
-
-
 void user_input(user_t *user_ptr)
 {
-    char cmd[100];
     next_init(user_ptr);
+    char com[100];
 
     while (1) {
-        char com[100];
         printf("\r> ");
         fflush(stdout);
         pthread_mutex_unlock(&user_ptr->port_mutex);
@@ -443,7 +472,7 @@ void user_input(user_t *user_ptr)
             char *channel = strtok(NULL, " ");
             char *message = strtok(NULL, " ");
             if (channel == NULL || message == NULL) {
-                printf("invald arguments\n");
+                printf("Invald arguments\n");
             }
             else {
                 int id = get_channel_id(channel);
