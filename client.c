@@ -103,7 +103,6 @@ void user_int(user_t* user_ptr) {
 
 int send_request(user_t* user, char* data) {
     int sockFd = user->connectionFd;
-    int err;
 
     if (send(sockFd, data, REQ_BUF_SIZE, 0) == -1) {
         printf("failed to send message\n");
@@ -145,7 +144,7 @@ int request(user_t* user, struct reqeust_details details, size_t* size) {
     if (size != NULL) {
         *size = int_range(buffer, 0, 5, NULL);
     }
-    return int_range(buffer, 5, 10, NULL);
+    return int_range(buffer, 5, 9, NULL);
 }
 
 int subscription(int channelId, user_t* user, int req) {
@@ -218,14 +217,18 @@ void get_next_message(int channelId, user_t* user) {
 }
 
 void send_message(int channel, user_t* user, char *message) {
+    int length = strlen(message);
     char buffer[MESSAGE_SIZE];
-    struct reqeust_details details;
-    details.request = Send;
-    details.channel = channel;
-    details.data = message;
-    details.data_size = MESSAGE_SIZE;
-
-    request(user, details, NULL);
+    
+    for (int i = 0; i < length; i+= MESSAGE_SIZE) {    
+        snprintf(buffer, MESSAGE_SIZE, message+i);   
+        struct reqeust_details details;
+        details.request = Send;
+        details.channel = channel;
+        details.data = buffer;
+        details.data_size = MESSAGE_SIZE;
+        request(user, details, NULL);
+    }
 }
 
 
@@ -272,7 +275,6 @@ void thread_do(user_t* user) {
 
     int channelId, request;
     while(1) {
-        start:
         sem_wait(job_sem);
         if (job_list->head == NULL) {
             printf("DEUBG job isn't on head\n");
@@ -364,28 +366,30 @@ void sigin_handler(int sig) {
 
 void quit(user_t* user) {
     printf("\rBye         \n");
-    char buffer[10];
     send(user->connectionFd, "CLOSE", REQ_BUF_SIZE, 0);
     close(user->connectionFd);
     exit(0);
 }
 
-void get_inputs(char *buffer, int buffer_size)
+char* get_inputs()
 {
     char c;
     int position = 0;
+    size_t buff_size = 100;
+    char* buffer = malloc(100 * sizeof(char));
     while (1) {
         c = getchar();
+        if (position >= buff_size) {
+            buff_size += 100;
+            buffer = realloc(buffer, buff_size * sizeof(char));
+        }
         if (c == EOF || c == '\n') {
             buffer[position] = '\0';
-            return;
+            return buffer;
         } else {
             buffer[position] = c;
         }
         position++;
-    }
-    if (position >= buffer_size) {
-        return;
     }
 }
 
@@ -404,14 +408,14 @@ int get_channel_id(char* param) {
 void user_input(user_t *user_ptr)
 {
     next_init(user_ptr);
-    char com[100];
+    char* com;
 
     while (1) {
         printf("\r> ");
         fflush(stdout);
         pthread_mutex_unlock(&user_ptr->port_mutex);
 
-        get_inputs(com, 100);
+        com = get_inputs();
         pthread_mutex_lock(&user_ptr->port_mutex);
         strtok(com, " ");
 
@@ -469,8 +473,9 @@ void user_input(user_t *user_ptr)
             }
         } 
         else if (strcasecmp(com, "SEND") == 0) {
-            char *channel = strtok(NULL, " ");
-            char *message = strtok(NULL, " ");
+            char* channel = strtok(NULL, " ");
+            char* message = strtok(NULL, "");
+
             if (channel == NULL || message == NULL) {
                 printf("Invald arguments\n");
             }
@@ -488,6 +493,8 @@ void user_input(user_t *user_ptr)
         else {
             printf("Not valid command\n");
         }
+
+        free(com);
     }
 }
 

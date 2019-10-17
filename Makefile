@@ -1,7 +1,8 @@
 CC = c99
-CFLAGS = -lrt -g -pthread
+CFLAGS = -lrt -g -pthread -Wall
 clientObjects = util.o
 serverObjects = util.o
+scratchObjects =  util.o
 
 all: server client 
 
@@ -16,7 +17,7 @@ client: client.c util.o
 	${CC} $@.c ${CFLAGS} ${clientObjects} -o $@
 
 scratch: scratch.c util.o
-	${CC} $@.c ${CFLAGS} ${clientObjects} -o $@
+	${CC} $@.c ${CFLAGS} ${scratchObjects} -o $@
 
 
 clean:

@@ -277,7 +277,7 @@ void message_reader(client_t* client) {
         if (client->buffer_pos == mess_buffer->writer_pos) {
             continue;
         } else {
-            message_t* new_message = que_add(client);
+            que_add(client);
         }
     }
 }
@@ -290,7 +290,7 @@ void message_reader(client_t* client) {
 
 void return_data(client_t* client, char* data, int data_size, int code) {
     char buffer[REQ_BUF_SIZE];
-    sprintf(buffer, "%05d%05d", data_size);
+    sprintf(buffer, "%05d%04d", data_size, code);
     send(client->connectionFd, buffer, REQ_BUF_SIZE, 0);
     if (data_size > 0 ) {
         send(client->connectionFd, data, data_size, 0);
@@ -509,8 +509,6 @@ void chat_listen(int connectFd, client_t *client) {
     pthread_create(&thread, NULL, (void * (*) (void *) )message_reader, client);
 
     char req_buffer[REQ_BUF_SIZE];
-    char *tmp;
-
     printf("[%d] has joinded the server\n", client->client_id);
 
     while (1) {
@@ -601,9 +599,7 @@ void incoming_connections(int listenFd) {
     }
 }
 
-void incoming_connections_single_process(int listenFd) {
-    pid_t pid;
-    
+void incoming_connections_single_process(int listenFd) {   
     int connectFd = accept(listenFd, NULL, NULL);
 
     if (connectFd == -1) {
