@@ -9,6 +9,6 @@ int int_range(char* message, int start, int finnish, int* error) {
         *error = -1;
     }
     char buffer[finnish - start]; 
-    snprintf(buffer, finnish - start + 1, message + start);
+    snprintf(buffer, finnish - start + 1, "%s", message + start);
     return atoi(buffer);
 }

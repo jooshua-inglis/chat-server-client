@@ -3,3 +3,4 @@ scratch*
 client
 server
 *.o
+build

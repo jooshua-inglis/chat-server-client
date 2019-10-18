@@ -1,5 +1,5 @@
 enum Request {
-    Send, Sub, UnSub, List, NextId, LivefeedId, NextNotUsed, LivefeedNotUSed, Stop, Bye
+    Send, Sub, UnSub, List, NextId, LivefeedId, Stop, Bye
 };
 
 #define REQ_BUF_SIZE 10
