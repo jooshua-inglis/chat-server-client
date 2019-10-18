@@ -442,6 +442,12 @@ void add_livefeed(client_t* client, int channel) {
     }
 }
 
+void stop(client_t* client) {
+    for (int i = 0; i < MAX_CHANNELS; ++i) {
+        client->livefeeds[i] = false;
+    }
+    return_data(client, NULL, 0, 0);
+}
 
 // ===========================================================================
 //                               SERVER MAIN 
@@ -554,6 +560,9 @@ void chat_listen(int connectFd, client_t *client) {
         else if (request == List) {
             list_sub(client);
         }
+        else if (request == Stop) {
+            stop(client);
+        }
 
         if (strcmp("CLOSE", req_buffer) == 0) {
             printf("[%d] left the left the server\n", client->client_id);
@@ -618,7 +627,7 @@ void incoming_connections_single_process(int listenFd) {
 }
 
 void chat_shutdown() {
-    printf("bye\n");
+    printf("\rShutting down server\n");
     close(LISTENFD);
     client_close_all();
     channel_close();

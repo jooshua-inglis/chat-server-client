@@ -250,6 +250,11 @@ void live_feed(int channelId, user_t* user) {
     fflush(stdout);
 }
 
+void stop(user_t* user) {
+    struct reqeust_details details = {.request = Stop, .data_size = 0 };
+    request(user, details, NULL);
+}
+
 
 // ============================================================================== //
 //                                 THREADED REQUESTS                              //
@@ -489,6 +494,9 @@ void user_input(user_t *user_ptr)
         }
         else if (strcasecmp(com, "BYE") == 0) {
             quit(user_ptr);
+        }
+        else if (strcasecmp(com, "STOP") == 0) {
+            stop(user_ptr);
         }
         else {
             printf("Not valid command\n");
