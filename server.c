@@ -255,7 +255,9 @@ message_t* que_add(client_t* client) {
     node->next = NULL;
 
     if (is_livefeed(client, node->message->channel)) {
-        send(client->connectionFd, node->message->message, MESSAGE_SIZE, 0);
+        char buffer[MESSAGE_SIZE + 5];
+        sprintf(buffer, "%d: %s", node->message->channel, node->message->message);
+        send(client->connectionFd, buffer, MESSAGE_SIZE + 5, 0);
         client->positions[node->message->channel]++;
         return node->message;
     }
@@ -356,7 +358,9 @@ void next_time(client_t* client, message_que_t *m) {
         next_time(client, m);
         return;
     } else {
-        return_data(client, node->message->message, MESSAGE_SIZE, 0);
+        char buffer[MESSAGE_SIZE + 5];
+        sprintf(buffer, "%d: %s", node->message->channel, node->message->message);
+        return_data(client, buffer, MESSAGE_SIZE + 6, 0);
         client->positions[node->message->channel]++;
         m->head = node->next;
         free(node);

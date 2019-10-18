@@ -241,7 +241,11 @@ void live_feed(int channelId, user_t* user) {
     int code = request(user, details , NULL);
     
     if (code == 0) {
-        printf("\rLivefeeding %d\n> ", channelId);
+        if (channelId == -1) {
+            printf("\rLivefeeding all\n> ");
+        } else {
+            printf("\rLivefeeding %d\n> ", channelId);
+        }
     } else if (code == 1) {
         printf("\rYou are not subbed to channel %d\n> ", channelId);
     } else if (code == 2) {
@@ -339,16 +343,16 @@ void next_init(user_t* user) {
 void quit(user_t* user);
 
 void livefeed_listen(user_t* user) {
-    char buffer[MESSAGE_SIZE];
+    char buffer[MESSAGE_SIZE + 5];
     while(1) {
-        recv(user->connectionFd, buffer, MESSAGE_SIZE, MSG_PEEK);
+        recv(user->connectionFd, buffer, MESSAGE_SIZE + 5, MSG_PEEK);
         if (strcmp(buffer, "CLOSE") == 0) {
             quit(user);
         }
         if (pthread_mutex_trylock(&user->port_mutex) == EBUSY) {
             continue;
         }
-        recv(user->connectionFd, buffer, MESSAGE_SIZE, 0);
+        recv(user->connectionFd, buffer, MESSAGE_SIZE + 5, 0);
 
         printf("\r%s\n> ", buffer);
         fflush(stdout);
