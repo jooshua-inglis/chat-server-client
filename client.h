@@ -1,6 +1,8 @@
 #ifndef CHAT_CLIENT_H
 #define CHAT_CLIENT_H
 
+#include <pthread.h>
+
 typedef struct next_job next_job_t;
 typedef struct list list_t;
 
