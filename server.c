@@ -15,6 +15,7 @@
 
 #include "util.h"
 #include "server.h"
+#include "mutex.h"
 
 #define MAX_USES  256
 #define MAX_CHANNELS 256
@@ -41,6 +42,7 @@ typedef struct channel {
     message_t messages[CHANNEL_SIZE];
     size_t pos;
     char  shm_name[8];
+    rw_mutex_t mutex;
 } channel_t;
 
 
@@ -67,13 +69,17 @@ void channel_init() {
     for (int i = 0; i < MAX_CHANNELS; ++i) {
         channels[i] = channel_shm_init(i);
         channels[i]->pos = 0;
+        rw_mutex_init(&channels[i]->mutex);
     }
 }
 
 message_t* message_put(int channel , message_t message) {
     channel_t* c = channels[channel];
     message.pos = c->pos;
+
+    write_lock(&c->mutex);
     c->messages[c->pos] = message;
+    write_unlock(&c->mutex);
 
     int pos = c->pos;
     c->pos = (c->pos + 1) % CHANNEL_SIZE;
@@ -170,13 +176,20 @@ typedef struct message_node message_node_t;
 
 struct message_node {
     message_t* message;
+    channel_t* channel;
     int time;
     message_node_t* next;
 };
 
+struct new_message {
+    message_t* messsage;
+    channel_t* channel;
+};
+
 struct message_buffer {
-    message_t *buffer[MSG_QUE_BUFFER_SIZE];
+    struct new_message buffer[MSG_QUE_BUFFER_SIZE];
     int writer_pos;
+    rw_mutex_t lock;
 };
 
 struct message_buffer* mess_buffer;
@@ -186,10 +199,17 @@ void que_shm_init() {
     ftruncate(shm_sg, sizeof(struct message_buffer));
     mess_buffer = mmap(0, sizeof(struct message_buffer), PROT_WRITE, MAP_SHARED, shm_sg, 0);
     mess_buffer->writer_pos = 0;
+    rw_mutex_init(&mess_buffer->lock);
 }
 
-void buffer_add(message_t* message, struct message_buffer* buffer) {
-    buffer->buffer[buffer->writer_pos++] = message;
+void buffer_add(message_t* message, struct message_buffer* buffer, int channel) {
+    write_lock(&mess_buffer->lock);
+
+    struct new_message new = { message, channels[channel] };
+    buffer->buffer[buffer->writer_pos++] = new;
+
+    write_unlock(&mess_buffer->lock);
+
     for (int i = 0; i < MAX_USES; ++i) {
         if (clients[i].pid != 0) sem_post(&clients[i].buffer_sem);
     }
@@ -222,15 +242,25 @@ bool message_read(client_t* client, message_t* message) {
 }
 
 
-message_t* que_add(client_t* client) {
+void que_add(client_t* client) {
     message_que_t* que = &client->que;
     message_node_t* node = malloc(sizeof(message_node_t));
-    node->message = mess_buffer->buffer[client->buffer_pos++];
+
+    read_lock(&mess_buffer->lock);
+
+    struct new_message new_message = mess_buffer->buffer[client->buffer_pos++];
+    node->message = new_message.messsage;
+    
+    read_unlock(&mess_buffer->lock);
+    channel_t* channel = new_message.channel;
+    read_lock(&channel->mutex);
 
     if (message_read(client, node->message)) {
-        return NULL;
+        read_unlock(&channel->mutex);
+        return;
     }
 
+    node->channel = channel;
     node->time = node->message->time;
     node->next = NULL;
 
@@ -239,18 +269,17 @@ message_t* que_add(client_t* client) {
         sprintf(buffer, "%d: %s", node->message->channel, node->message->message);
         send(client->connectionFd, buffer, MESSAGE_SIZE + 5, 0);
         client->positions[node->message->channel]++;
-        return node->message;
     }
-
-    if (que->head == NULL) {
+    else if (que->head == NULL) {
         que->head = node;
         que->tail = node;
-    } else {
+    } 
+    else {
         que->tail->next = node;
         que->tail = node;
     }
 
-    return node->message;
+    read_unlock(&channel->mutex);
 }
 
 void message_reader(client_t* client) {
@@ -320,7 +349,7 @@ int add_message(client_t *client, int channel, char *message) {
         client->positions[channel] = (client->positions[channel] + 1) % CHANNEL_SIZE;
     }
 
-    buffer_add(m_ptr, mess_buffer);
+    buffer_add(m_ptr, mess_buffer, channel);
 
     return_data(client, NULL, 0, 0);
     return 0;
@@ -332,10 +361,12 @@ void next_time(client_t* client, message_que_t *m) {
         return;
     }
     message_node_t* node = m->head;
+    read_lock(&node->channel->mutex);
     if (!is_subscribed(client, node->message->channel) || node->message->time != node->time || message_read(client, node->message)) {
         m->head = node->next;
         free(node);
         next_time(client, m);
+        read_unlock(&node->channel->mutex);
         return;
     } else {
         char buffer[MESSAGE_SIZE + 5];
@@ -343,23 +374,24 @@ void next_time(client_t* client, message_que_t *m) {
         return_data(client, buffer, MESSAGE_SIZE + 6, 0);
         client->positions[node->message->channel]++;
         m->head = node->next;
+        read_unlock(&node->channel->mutex);
         free(node);
         return;
     }
 }
 
+/*
+ * Is not sync protected 
+ */
 void next_id(client_t *client, int c) {
     channel_t *channel = channels[c];
     if (channel->pos == client->positions[c]) { // call caught up
         return_data(client, NULL, 0, 2);
-        return;
     } else if (!is_subscribed(client, c)) { // Not subbed
         return_data(client, NULL, 0, 1);
-        return;
     } else {
         message_t message = channel->messages[client->positions[c]++];
         return_data(client, message.message, MESSAGE_SIZE, 0);
-        return;
     }
 }
 
@@ -393,9 +425,12 @@ void catch_up(client_t* client, int c) {
         }
     } else {
         channel_t* channel = channels[c];
+        read_lock(&channel->mutex);
+
         while (client->positions[c] != channel->pos) {
             next_id(client, c);
         }
+        read_unlock(&channel->mutex);
     }
 }
 
@@ -508,15 +543,19 @@ void chat_listen(client_t *client) {
             add_message(client, channel, buffer);
         }
 
-        else if (request == NextId) {
+        else if (request == Next) {
             int channel = int_range(req_buffer, 1, 4, NULL);
-            if (channel != -1)
-                next_id(client, channel);
-            else
+            if (channel != -1) {
+                read_lock(&channels[channel]->mutex);
+                next_id(client, channel); 
+                read_unlock(&channels[channel]->mutex);
+
+            } else {
                 next_time(client, &client->que);
+            }
         }
 
-        else if (request == LivefeedId) {
+        else if (request == Livefeed) {
             int channel = int_range(req_buffer, 1, 4, NULL);
             add_livefeed(client, channel);
         }

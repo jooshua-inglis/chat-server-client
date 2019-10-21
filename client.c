@@ -172,7 +172,7 @@ void list(user_t* user) {
 // If channelId is -1 then get the message of all the channels
 void next(user_t *user, int channelId) {
     struct request_details details;
-    details.request = NextId;
+    details.request = Next;
     details.channel = channelId;
     details.data_size = 0;
 
@@ -210,7 +210,7 @@ void send_message(int channel, user_t* user, char *message) {
 void livefeed(int channelId, user_t* user) {
     struct request_details details;
     details.channel = channelId;
-    details.request = LivefeedId;
+    details.request = Livefeed;
     details.data_size = 0;
 
     int code = request(user, details , NULL);
@@ -254,9 +254,9 @@ void request_que_worker(user_t* user) {
         channelId = job_list->head->channel;
         request = job_list->head->request;
         pthread_mutex_lock(&user->port_mutex);
-        if (request == NextId) {
+        if (request == Next) {
             next(user, channelId);
-        } else if (request == LivefeedId) {
+        } else if (request == Livefeed) {
             livefeed(channelId, user);
         }
         pthread_mutex_unlock(&user->port_mutex);
@@ -284,11 +284,11 @@ void que_request(user_t* user, int channel, int request) {
 }
 
 void que_next(user_t* user, int channel) {
-    que_request(user, channel, NextId);
+    que_request(user, channel, Next);
 }
 
 void que_livefeed(user_t* user, int channel) {
-    que_request(user, channel, LivefeedId);
+    que_request(user, channel, Livefeed);
 }
 
 void request_que_init(user_t* user) {
