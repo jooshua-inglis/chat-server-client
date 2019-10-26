@@ -341,7 +341,7 @@ int add_message(client_t *client, int channel, char *message) {
     m.client_id = client->client_id;
     m.time = time(NULL);
     printf("[%d] posted %s to channel %d\n", client->client_id, message, channel);
-    sprintf(m.message, message);
+    sprintf(m.message, "%s", message);
 
     message_t* m_ptr = message_put(channel, m);
 
