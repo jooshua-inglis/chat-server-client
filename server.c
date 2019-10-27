@@ -70,12 +70,13 @@ void increment_channel(client_t* client, int c) {
 
 }
 
-message_t* get_next_message(client_t* client, int c) {
+message_t* get_next_message(client_t* client, int c, bool incr) {
     channel_t* channel = channels[c];
 
     message_t* output = &channel->messages[client->positions[c]];
-    increment_channel(client, c);
-
+    if (incr) {
+        increment_channel(client, c);
+    }
     return output;
 }
 
@@ -154,7 +155,7 @@ void que_shm_init() {
 void buffer_add(message_t* message, struct message_buffer* buffer, int channel) {
     write_lock(&mess_buffer->lock);
 
-    struct new_message new = { message, channels[channel] };
+    struct new_message new = {channel, message->time};
     buffer->buffer[buffer->writer_pos++] = new;
 
     write_unlock(&mess_buffer->lock);
@@ -197,27 +198,28 @@ void que_add(client_t* client) {
 
     read_lock(&mess_buffer->lock);
 
-    struct new_message new_message = mess_buffer->buffer[client->buffer_pos++];
-    node->message = new_message.messsage;
-    
+    struct new_message new = mess_buffer->buffer[client->buffer_pos++];
+    int c = new.channel;
+    int time = new.time;
+
     read_unlock(&mess_buffer->lock);
-    channel_t* channel = new_message.channel;
+    channel_t* channel = channels[c];
     read_lock(&channel->mutex);
 
-    if (message_read(client, node->message)) {
+    if (channel->pos == client->positions[c]) {
         read_unlock(&channel->mutex);
         return;
     }
 
     node->channel = channel;
-    node->time = node->message->time;
+    node->channel_id = c;
+    node->time = time;
     node->next = NULL;
 
-    if (is_livefeed(client, node->message->channel) && is_subscribed(client, node->message->channel)) {
+    if (is_livefeed(client, c) && is_subscribed(client, c)) {
         char buffer[MESSAGE_SIZE + 5];
-        sprintf(buffer, "%d: %s", node->message->channel, node->message->message);
+        sprintf(buffer, "%d: %s", c, get_next_message(client, c, true)->message);
         send(client->connectionFd, buffer, MESSAGE_SIZE + 5, 0);
-        client->positions[node->message->channel]++;
     }
     else if (que->head == NULL) {
         que->head = node;
@@ -311,17 +313,20 @@ void next_time(client_t* client, message_que_t *m) {
     }
     message_node_t* node = m->head;
     read_lock(&node->channel->mutex);
-    if (!is_subscribed(client, node->message->channel) || node->message->time != node->time || message_read(client, node->message)) {
+    
+    message_t* message = get_next_message(client, node->channel_id, false);
+
+    if (!is_subscribed(client, node->channel_id) || message->time != node->time || message_read(client, message)) {
         m->head = node->next;
-        free(node);
         next_time(client, m);
         read_unlock(&node->channel->mutex);
+        free(node);
         return;
     } else {
         char buffer[MESSAGE_SIZE + 5];
-        sprintf(buffer, "%d: %s", node->message->channel, node->message->message);
+        sprintf(buffer, "%d: %s", node->channel_id, message->message);
         return_data(client, buffer, MESSAGE_SIZE + 6, 0);
-        increment_channel(client, node->message->channel);
+        increment_channel(client, message->channel);
         m->head = node->next;
         read_unlock(&node->channel->mutex);
         free(node);
@@ -339,7 +344,7 @@ void next_id(client_t *client, int c) {
     } else if (!is_subscribed(client, c)) { // Not subbed
         return_data(client, NULL, 0, 1);
     } else {
-        message_t* message = get_next_message(client, c);
+        message_t* message = get_next_message(client, c, true);
         return_data(client, message->message, MESSAGE_SIZE, 0);
     }
 }
@@ -370,18 +375,21 @@ void list_sub(client_t* client) {
 void catch_up_all(client_t* client) {
     while (client->que.head != NULL) {
         message_node_t* node = client->que.head;
-        // read_lock(&node->channel->mutex);
-        if (!is_subscribed(client, node->message->channel) || node->message->time != node->time || message_read(client, node->message)) {
+        read_lock(&node->channel->mutex);
+
+        message_t* message = get_next_message(client, node->channel_id, false);
+
+        if (!is_subscribed(client, node->channel_id) || message->time != node->time || message_read(client, message)) {
             client->que.head = node->next;
             free(node);
-            // read_unlock(&node->channel->mutex);
+            read_unlock(&node->channel->mutex);
         } else {
             char buffer[MESSAGE_SIZE + 5];
-            sprintf(buffer, "%d: %s", node->message->channel, node->message->message);
+            sprintf(buffer, "%d: %s", message->channel, message->message);
             send(client->connectionFd, buffer, MESSAGE_SIZE + 5, 0);
-            increment_channel(client, node->message->channel);
+            increment_channel(client, message->channel);
             client->que.head = node->next;
-            // read_unlock(&node->channel->mutex);
+            read_unlock(&node->channel->mutex);
             free(node);
         }
     }
@@ -393,7 +401,7 @@ void catch_up(client_t* client, int c) {
 
     while (client->positions[c] != channel->pos) {
         char buffer[MESSAGE_SIZE + 5];
-        sprintf(buffer, "%d: %s", c, get_next_message(client, c)->message);
+        sprintf(buffer, "%d: %s", c, get_next_message(client, c, true)->message);
 
         send(client->connectionFd, buffer, MESSAGE_SIZE+5, 0);
     }

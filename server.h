@@ -90,15 +90,15 @@ bool is_subscribed(client_t* client, int c);
 #define MSG_QUE_BUFFER_SIZE 1000
 
 struct message_node {
-    message_t* message;
+    int channel_id;
     channel_t* channel;
     int time;
     message_node_t* next;
 };
 
 struct new_message {
-    message_t* messsage;
-    channel_t* channel;
+    int channel;
+    int time;
 };
 
 struct message_buffer {
