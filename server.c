@@ -12,13 +12,11 @@
 #include <time.h>
 #include <pthread.h>
 #include <semaphore.h>
+#include <signal.h>
 
 #include "util.h"
 #include "server.h"
 #include "mutex.h"
-
-#define MAX_USES  256
-#define MAX_CHANNELS 256
 
 int LISTEN_FD;
 bool debug = false;
@@ -26,25 +24,6 @@ bool debug = false;
 // ===========================================================================
 //                                   CHAT LOG
 // ===========================================================================
-
-
-#define CHANNEL_SIZE 1024
-
-typedef struct message {
-    int client_id;
-    int channel;
-    char message[MESSAGE_SIZE];
-    int time;
-    int pos;
-} message_t;
-
-typedef struct channel {
-    message_t messages[CHANNEL_SIZE];
-    size_t pos;
-    char  shm_name[8];
-    rw_mutex_t mutex;
-} channel_t;
-
 
 channel_t* channels[MAX_CHANNELS];
 
@@ -89,29 +68,6 @@ message_t* message_put(int channel , message_t message) {
 // ===========================================================================
 //                                   CLIENT
 // ===========================================================================
-
-
-typedef struct message_node message_node_t;
-
-typedef struct message_que {
-    message_node_t* head;
-    message_node_t* tail;
-} message_que_t;
-
-
-typedef struct client {
-    pid_t pid;
-    int client_id;
-    int connectionFd;
-    bool free;
-    int positions[MAX_CHANNELS];
-    int buffer_pos;
-    message_que_t que;
-    bool livefeeds[MAX_CHANNELS];
-    bool livefeed_all;
-    sem_t exit_sem;
-    sem_t buffer_sem;
-} client_t;
 
 
 client_t *clients;
@@ -169,28 +125,6 @@ bool is_subscribed(client_t* client, int c) {
 //                                   MESSAGE QUE
 // ===========================================================================
 
-
-#define MSG_QUE_BUFFER_SIZE 1000
-
-typedef struct message_node message_node_t;
-
-struct message_node {
-    message_t* message;
-    channel_t* channel;
-    int time;
-    message_node_t* next;
-};
-
-struct new_message {
-    message_t* messsage;
-    channel_t* channel;
-};
-
-struct message_buffer {
-    struct new_message buffer[MSG_QUE_BUFFER_SIZE];
-    int writer_pos;
-    rw_mutex_t lock;
-};
 
 struct message_buffer* mess_buffer;
 
@@ -639,3 +573,48 @@ void incoming_connections_single_process(int listenFd) {
     printf("Client %d connected\n", client->client_id);
     chat_listen(client);
 }
+
+void chat_shutdown() {
+    printf("\rShutting down server\n");
+    close(LISTEN_FD);
+    client_close_all();
+    channel_close();
+    unlink(SHARED_PROCESS_NAME);
+    unlink(SHARED_CHAT_NAME);
+    unlink(MESSAGE_QUE_NAME);
+    exit(0);
+}
+
+#ifndef SERVER_MAIN
+#define SERVER_MAIN
+
+int main(int argc, char const *argv[]) {
+    signal(SIGINT, chat_shutdown);
+
+    if (argc < 2) {
+        printf("server takes in 1 inputs, you have %d\n", argc);
+        return -1;
+    }
+
+    channel_init();
+    clients_ready();
+    que_shm_init();
+
+    int port = atoi(argv[1]);
+    printf("Creating server on port %d\n", port);
+
+    int listenFd = socket_init(port);
+    LISTEN_FD = listenFd;
+
+    if (argc == 3) {
+        debug = true;
+        printf("Launched in debug mode\n");
+        incoming_connections_single_process(listenFd);
+    } else {
+        incoming_connections(listenFd);
+    }
+
+    return 0;
+}
+
+#endif

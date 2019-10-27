@@ -4,12 +4,11 @@
 #include <pthread.h>
 
 typedef struct next_job next_job_t;
-typedef struct list list_t;
 
-struct list {
+typedef struct list {
     next_job_t* head;
     next_job_t* tail;
-};
+} list_t;
 
 struct next_job {
     int channel;
@@ -28,17 +27,56 @@ typedef struct user {
 } user_t;
 
 
-void handle_interrupt(int sig);
-
-void user_int(user_t* user);
+// ==============================================================================
+//                              USER AND CONNECTIONS
+// ==============================================================================
 
 int connect_to_server(user_t *user_ptr, char *server_name, int port);
 
 void livefeed_init(user_t* user);
 
-void user_input(user_t* user);
+void user_int(user_t* user);
+
+
+// ==============================================================================
+//                                    REQUESTS
+// ==============================================================================
+
+int subscription(user_t *user, int channelId, int req);
+
+void subscribe(user_t *user, int channelId);
+
+void unsubscribe(user_t *user, int channelId);
+
+void list(user_t* user);
+
+void next(user_t *user, int channelId);
+
+void send_message(int channel, user_t* user, char *message);
+
+void livefeed(int channelId, user_t* user);
+
+void stop(user_t* user);
+
+// ============================================================================== //
+//                                 THREADED REQUESTS                              //
+// ============================================================================== //
+
+
+void que_next(user_t* user, int channel);
+
+void que_livefeed(user_t* user, int channel);
+
+
+// ======================================================================== //
+//                                SHELL                                     //
+// ======================================================================== //
+
+void handle_interrupt(int sig);
 
 void quit(user_t* user);
+
+void user_input(user_t* user);
 
 
 #endif //CHAT_CLIENT_H

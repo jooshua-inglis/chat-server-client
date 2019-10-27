@@ -6,7 +6,6 @@ set(CMAKE_C_STANDARD 11)
 include_directories(.)
 
 add_executable(server
-        server_main.c
         server.c
         server.h
 
@@ -18,7 +17,6 @@ add_executable(server
 add_executable(client
         client.c
         client.h
-        client_main.c
         util.c
         util.h
         )
