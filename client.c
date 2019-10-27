@@ -20,6 +20,7 @@ int exiting = 0;
 
 // ==============================================================================
 //                              USER AND CONNECTIONS
+//                      Handles state of the user and connection
 // ==============================================================================
 
 
@@ -63,7 +64,7 @@ int connect_to_server(user_t *user_ptr, char *server_name, int port) {
     return sockFd;
 }
 
-void user_int(user_t* user) {
+void user_init(user_t* user) {
     for (int i = 0; i < 256; i++) {
         user->channels[i] = 0;
     }
@@ -74,6 +75,7 @@ void user_int(user_t* user) {
 
 // ==============================================================================
 //                                    REQUESTS
+//                          Handles requests to the server
 // ==============================================================================
 
 
@@ -238,8 +240,16 @@ void stop(user_t* user) {
 
 // ============================================================================== //
 //                                 THREADED REQUESTS                              //
+//                             Handles next and livefeed                          //
 // ============================================================================== //
 
+
+/*
+ * params:
+ * user: User details
+ * 
+ * Worker that reads through the job queue and completes the jobs
+ */
 void request_que_worker(user_t* user) {
     sem_t* job_sem = &user->sem;
     list_t* job_list = &user->list;
@@ -268,6 +278,14 @@ void request_que_worker(user_t* user) {
     }
 }
 
+/* 
+ * Params:
+ * user: User details
+ * channel: channel the request goes to
+ * request: request id, either next or livefeed
+ * 
+ * takes the details of the request and addeds it to the end of the job que
+ */
 void que_request(user_t* user, int channel, int request) {
     next_job_t* job = malloc(sizeof(next_job_t));
     job->channel = channel;
@@ -327,6 +345,7 @@ void livefeed_init(user_t* user) {
 
 // ======================================================================== //
 //                                SHELL                                     //
+//                             Handles intput
 // ======================================================================== //
 
 void handle_interrupt(int sig) {
@@ -484,7 +503,7 @@ int main(int argc, char **argv) {
     char *serverName = argv[1];
     user_t user;
 
-    user_int(&user);
+    user_init(&user);
     connect_to_server(&user, serverName, port);
     livefeed_init(&user);
     user_input(&user);

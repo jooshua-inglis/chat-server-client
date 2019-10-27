@@ -29,6 +29,7 @@ typedef struct user {
 
 // ==============================================================================
 //                              USER AND CONNECTIONS
+//                      Handles state of the user and connection
 // ==============================================================================
 
 int connect_to_server(user_t *user_ptr, char *server_name, int port);
@@ -40,6 +41,7 @@ void user_int(user_t* user);
 
 // ==============================================================================
 //                                    REQUESTS
+//                          Handles requests to the server
 // ==============================================================================
 
 int subscription(user_t *user, int channelId, int req);
@@ -60,6 +62,7 @@ void stop(user_t* user);
 
 // ============================================================================== //
 //                                 THREADED REQUESTS                              //
+//                             Handles next and livefeed                          //
 // ============================================================================== //
 
 
@@ -70,6 +73,7 @@ void que_livefeed(user_t* user, int channel);
 
 // ======================================================================== //
 //                                SHELL                                     //
+//                             Handles intput
 // ======================================================================== //
 
 void handle_interrupt(int sig);

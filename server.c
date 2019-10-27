@@ -137,6 +137,33 @@ bool is_subscribed(client_t* client, int c) {
     return client->positions[c] != -1;
 }
 
+
+bool is_livefeed(client_t* client, int channel) {
+    return client->livefeed_all || client->livefeeds[channel];
+}
+
+bool _message_read(int mess_pos, int read_pos, int write_pos) {
+    if (read_pos == write_pos) {
+        return true;
+    }
+    else if (write_pos > read_pos) {
+        return !(read_pos <= mess_pos && mess_pos < write_pos);
+    }
+    else {
+        return write_pos <= mess_pos && mess_pos < read_pos;
+    }
+}
+
+
+bool message_read(client_t* client, message_t* message) {
+    int mess_pos = message->pos;
+    int read_pos = client->positions[message->channel];
+    int write_pos = channels[message->channel]->pos;
+
+    return _message_read(mess_pos, read_pos, write_pos);
+}
+
+
 // ===========================================================================
 //                                   MESSAGE QUE
 // ===========================================================================
@@ -165,31 +192,6 @@ void buffer_add(message_t* message, struct message_buffer* buffer, int channel) 
     }
 }
 
-
-bool is_livefeed(client_t* client, int channel) {
-    return client->livefeed_all || client->livefeeds[channel];
-}
-
-bool _message_read(int mess_pos, int read_pos, int write_pos) {
-    if (read_pos == write_pos) {
-        return true;
-    }
-    else if (write_pos > read_pos) {
-        return !(read_pos <= mess_pos && mess_pos < write_pos);
-    }
-    else {
-        return write_pos <= mess_pos && mess_pos < read_pos;
-    }
-}
-
-
-bool message_read(client_t* client, message_t* message) {
-    int mess_pos = message->pos;
-    int read_pos = client->positions[message->channel];
-    int write_pos = channels[message->channel]->pos;
-
-    return _message_read(mess_pos, read_pos, write_pos);
-}
 
 
 void que_add(client_t* client) {
@@ -298,6 +300,10 @@ int add_message(client_t *client, int channel, char *message) {
 
     if (is_subscribed(client, channel) && !debug) {
         client->positions[channel] = (client->positions[channel] + 1) % CHANNEL_SIZE;
+    }
+
+    if (client->positions[channel] == (channels[channel]->pos+1)%CHANNEL_SIZE) {
+        increment_channel(client, channel);
     }
 
     buffer_add(m_ptr, mess_buffer, channel);
