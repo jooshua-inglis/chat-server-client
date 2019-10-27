@@ -65,6 +65,21 @@ message_t* message_put(int channel , message_t message) {
     return &c->messages[pos];
 }
 
+void increment_channel(client_t* client, int c) {
+    client->positions[c] = (client->positions[c]+1)%CHANNEL_SIZE;
+
+}
+
+message_t* get_next_message(client_t* client, int c) {
+    channel_t* channel = channels[c];
+
+    message_t* output = &channel->messages[client->positions[c]];
+    increment_channel(client, c);
+
+    return output;
+}
+
+
 // ===========================================================================
 //                                   CLIENT
 // ===========================================================================
@@ -198,7 +213,7 @@ void que_add(client_t* client) {
     node->time = node->message->time;
     node->next = NULL;
 
-    if (is_livefeed(client, node->message->channel)) {
+    if (is_livefeed(client, node->message->channel) && is_subscribed(client, node->message->channel)) {
         char buffer[MESSAGE_SIZE + 5];
         sprintf(buffer, "%d: %s", node->message->channel, node->message->message);
         send(client->connectionFd, buffer, MESSAGE_SIZE + 5, 0);
@@ -306,7 +321,7 @@ void next_time(client_t* client, message_que_t *m) {
         char buffer[MESSAGE_SIZE + 5];
         sprintf(buffer, "%d: %s", node->message->channel, node->message->message);
         return_data(client, buffer, MESSAGE_SIZE + 6, 0);
-        client->positions[node->message->channel]++;
+        increment_channel(client, node->message->channel);
         m->head = node->next;
         read_unlock(&node->channel->mutex);
         free(node);
@@ -324,8 +339,8 @@ void next_id(client_t *client, int c) {
     } else if (!is_subscribed(client, c)) { // Not subbed
         return_data(client, NULL, 0, 1);
     } else {
-        message_t message = channel->messages[client->positions[c]++];
-        return_data(client, message.message, MESSAGE_SIZE, 0);
+        message_t* message = get_next_message(client, c);
+        return_data(client, message->message, MESSAGE_SIZE, 0);
     }
 }
 
@@ -352,25 +367,44 @@ void list_sub(client_t* client) {
     }
 }
 
-void catch_up(client_t* client, int c) {
-    if (c == -1) {
-        while (client->que.head != NULL) {
-            next_time(client, &client->que);
+void catch_up_all(client_t* client) {
+    while (client->que.head != NULL) {
+        message_node_t* node = client->que.head;
+        // read_lock(&node->channel->mutex);
+        if (!is_subscribed(client, node->message->channel) || node->message->time != node->time || message_read(client, node->message)) {
+            client->que.head = node->next;
+            free(node);
+            // read_unlock(&node->channel->mutex);
+        } else {
+            char buffer[MESSAGE_SIZE + 5];
+            sprintf(buffer, "%d: %s", node->message->channel, node->message->message);
+            send(client->connectionFd, buffer, MESSAGE_SIZE + 5, 0);
+            increment_channel(client, node->message->channel);
+            client->que.head = node->next;
+            // read_unlock(&node->channel->mutex);
+            free(node);
         }
-    } else {
-        channel_t* channel = channels[c];
-        read_lock(&channel->mutex);
-
-        while (client->positions[c] != channel->pos) {
-            next_id(client, c);
-        }
-        read_unlock(&channel->mutex);
     }
+}
+
+void catch_up(client_t* client, int c) {
+    channel_t* channel = channels[c];
+    read_lock(&channel->mutex);
+
+    while (client->positions[c] != channel->pos) {
+        char buffer[MESSAGE_SIZE + 5];
+        sprintf(buffer, "%d: %s", c, get_next_message(client, c)->message);
+
+        send(client->connectionFd, buffer, MESSAGE_SIZE+5, 0);
+    }
+    read_unlock(&channel->mutex);
+    
 }
 
 void add_livefeed(client_t* client, int channel) {
     if (channel == -1) {
         return_data(client, NULL, 0, 0);
+        catch_up_all(client);
         client->livefeed_all = true;
     } else if (is_subscribed(client, channel)) {
         if (client->livefeeds[channel]) {
@@ -378,9 +412,10 @@ void add_livefeed(client_t* client, int channel) {
             return;
         }
         client->livefeeds[channel] = true;
+        return_data(client, NULL, 0, 0);
+        
         catch_up(client, channel);
 
-        return_data(client, NULL, 0, 0);
         printf("[%d] is now livefeeding channel %d\n", client->client_id, channel );
     } else {
         return_data(client, NULL, 0, 1);
