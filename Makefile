@@ -1,14 +1,12 @@
 CC = c99
-CFLAGS = -lrt -g -pthread -Wall
+CFLAGS = -Wall -g
+LDLIBS = -lrt -pthread 
 
 all: server client 
 
-server:  server.c server.h util.c mutex.c mutex.h
-	${CC} $^ -o $@ ${CFLAGS}
+server: server.c util.c util.h mutex.c mutex.h
 
-client:  client.c util.c
-
-#scratch: scratch.c util.c util.h
+client: client.c util.c util.h mutex.c mutex.h
 
 clean:
 	rm -f server client

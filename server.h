@@ -10,9 +10,8 @@
 #define MESSAGE_QUE_NAME "MESSAGE_QUE"
 #define SHARED_CHAT_NAME "CHAT%d"
 #define SHARED_PROCESS_NAME "PROCESSES"
-#define MAX_USES  256
+#define MAX_USES 256
 #define MAX_CHANNELS 256
-
 
 // ===========================================================================
 //                                   CHAT LOG
@@ -31,23 +30,21 @@ typedef struct message {
 typedef struct channel {
     message_t messages[CHANNEL_SIZE];
     size_t pos;
-    char  shm_name[8];
+    char shm_name[8];
     rw_mutex_t mutex;
 } channel_t;
 
-channel_t* channel_shm_init(int i);
+channel_t* hi(int i);
 
 void channel_close();
 
 void channel_init();
 
-message_t* message_put(int channel , message_t message);
-
+message_t* message_put(int channel, message_t message);
 
 // ===========================================================================
 //                                   CLIENT
 // ===========================================================================
-
 
 typedef struct message_node message_node_t;
 
@@ -55,7 +52,6 @@ typedef struct message_que {
     message_node_t* head;
     message_node_t* tail;
 } message_que_t;
-
 
 typedef struct client {
     pid_t pid;
@@ -75,7 +71,7 @@ void clients_ready();
 
 void client_shm_init();
 
-client_t *client_add();
+client_t* client_add();
 
 void client_close(client_t* client);
 
@@ -125,25 +121,23 @@ void message_reader(client_t* client);
 //                                   REQUESTS
 // ===========================================================================
 
-
 void return_data(client_t* client, char* data, int data_size, int code);
 
 int subscribe(client_t* client, int c);
 
 int unsubscribe(client_t* client, int c);
 
-int add_message(client_t *client, int channel, char *message);
+int add_message(client_t* client, int channel, char* message);
 
-void next_time(client_t* client, message_que_t *m);
+void next_time(client_t* client, message_que_t* m);
 
-void next_id(client_t *client, int c);
+void next_id(client_t* client, int c);
 
 void list_sub(client_t* client);
 
 void add_livefeed(client_t* client, int channel);
 
 void stop(client_t* client);
-
 
 // ===========================================================================
 //                               SERVER MAIN
@@ -155,11 +149,10 @@ void exit_wait(client_t* client);
 
 void client_init(client_t* client, int connectFd);
 
-void chat_listen(client_t *client);
+void chat_listen(client_t* client);
 
 void incoming_connections(int listenFd);
 
 void incoming_connections_single_process(int listenFd);
 
-
-#endif //CHAT_SERVER_H
+#endif  // CHAT_SERVER_H

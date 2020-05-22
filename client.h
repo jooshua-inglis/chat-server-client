@@ -2,6 +2,7 @@
 #define CHAT_CLIENT_H
 
 #include <pthread.h>
+#include <semaphore.h>
 
 typedef struct next_job next_job_t;
 
@@ -26,35 +27,33 @@ typedef struct user {
     pthread_mutex_t port_mutex;
 } user_t;
 
-
 // ==============================================================================
 //                              USER AND CONNECTIONS
 //                      Handles state of the user and connection
 // ==============================================================================
 
-int connect_to_server(user_t *user_ptr, char *server_name, int port);
+int connect_to_server(user_t* user_ptr, char* server_name, int port);
 
 void livefeed_init(user_t* user);
 
 void user_int(user_t* user);
-
 
 // ==============================================================================
 //                                    REQUESTS
 //                          Handles requests to the server
 // ==============================================================================
 
-int subscription(user_t *user, int channelId, int req);
+int subscription(user_t* user, int channelId, int req);
 
-void subscribe(user_t *user, int channelId);
+void subscribe(user_t* user, int channelId);
 
-void unsubscribe(user_t *user, int channelId);
+void unsubscribe(user_t* user, int channelId);
 
 void list(user_t* user);
 
-void next(user_t *user, int channelId);
+void next(user_t* user, int channelId);
 
-void send_message(int channel, user_t* user, char *message);
+void send_message(int channel, user_t* user, char* message);
 
 void livefeed(int channelId, user_t* user);
 
@@ -65,11 +64,9 @@ void stop(user_t* user);
 //                             Handles next and livefeed                          //
 // ============================================================================== //
 
-
 void que_next(user_t* user, int channel);
 
 void que_livefeed(user_t* user, int channel);
-
 
 // ======================================================================== //
 //                                SHELL                                     //
@@ -82,5 +79,4 @@ void quit(user_t* user);
 
 void user_input(user_t* user);
 
-
-#endif //CHAT_CLIENT_H
+#endif  // CHAT_CLIENT_H

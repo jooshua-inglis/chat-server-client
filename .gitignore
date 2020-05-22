@@ -1,8 +1,7 @@
-scratch*
 .vscode
+.idea
+
 client
 server
+
 *.o
-build
-cmake-build-debug
-.idea

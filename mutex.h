@@ -13,7 +13,6 @@ typedef struct wr_mutex {
 
 void rw_mutex_init(rw_mutex_t* m);
 
-
 /*
  * Locks the mutex however, is not blocked by other read locks, only write locks.
  */

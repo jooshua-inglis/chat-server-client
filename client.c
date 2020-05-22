@@ -1,20 +1,20 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <strings.h>
-#include <string.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#include <netinet/in.h>
+#include "client.h"
+
 #include <arpa/inet.h>
 #include <errno.h>
+#include <netinet/in.h>
 #include <pthread.h>
 #include <semaphore.h>
 #include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #include "util.h"
-#include "client.h"
-
 
 int exiting = 0;
 
@@ -23,9 +23,7 @@ int exiting = 0;
 //                      Handles state of the user and connection
 // ==============================================================================
 
-
-
-int connect_to_server(user_t *user_ptr, char *server_name, int port) {
+int connect_to_server(user_t* user_ptr, char* server_name, int port) {
     struct sockaddr_in serverAddr;
 
     int sockFd = socket(AF_INET, SOCK_STREAM, 0);
@@ -34,14 +32,12 @@ int connect_to_server(user_t *user_ptr, char *server_name, int port) {
         exit(1);
     }
 
-
     bzero(&serverAddr, sizeof(serverAddr));
     inet_pton(AF_INET, server_name, &serverAddr.sin_addr);
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_port = htons(port);
 
-
-    if (connect(sockFd, (struct sockaddr *) &serverAddr, sizeof(serverAddr)) == -1) {
+    if (connect(sockFd, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) == -1) {
         fprintf(stderr, "Failed to connect initi\n");
         close(sockFd);
         exit(1);
@@ -72,12 +68,10 @@ void user_init(user_t* user) {
     pthread_mutex_unlock(&user->port_mutex);
 }
 
-
 // ==============================================================================
 //                                    REQUESTS
 //                          Handles requests to the server
 // ==============================================================================
-
 
 int send_request(user_t* user, char* data) {
     int sockFd = user->connectionFd;
@@ -96,7 +90,6 @@ int send_request(user_t* user, char* data) {
     return 0;
 }
 
-
 struct request_details {
     int request;
     int channel;
@@ -107,7 +100,7 @@ struct request_details {
 /**
  * request is the request type, channel is the channel the user wants, data is the data
  * to be sent, NULL if no data, data_size is the size of data
- * 
+ *
  * Returns the return code from request of the data to be send back from the server, 0 if no data
  */
 int request(user_t* user, struct request_details details, size_t* size) {
@@ -125,7 +118,7 @@ int request(user_t* user, struct request_details details, size_t* size) {
     return int_range(buffer, 5, 9, NULL);
 }
 
-int subscription(user_t *user, int channelId, int req) {
+int subscription(user_t* user, int channelId, int req) {
     if (channelId > 255 || channelId < 0) {
         printf("Invalid channel: %d", channelId);
         return -2;
@@ -138,16 +131,16 @@ int subscription(user_t *user, int channelId, int req) {
     return request(user, details, NULL);
 }
 
-void subscribe(user_t *user, int channelId) {
+void subscribe(user_t* user, int channelId) {
     int error = subscription(user, channelId, Sub);
     if (error == 0) {
         printf("Subscribed to channel %d\n", channelId);
-    } else if(error == -1) {
+    } else if (error == -1) {
         printf("Already subscribed to channel %d\n", channelId);
     }
 }
 
-void unsubscribe(user_t *user, int channelId) {
+void unsubscribe(user_t* user, int channelId) {
     int error = subscription(user, channelId, UnSub);
     if (error == 0) {
         printf("Unsubscribed to channel %d\n", channelId);
@@ -173,7 +166,7 @@ void list(user_t* user) {
 }
 
 // If channelId is -1 then get the message of all the channels
-void next(user_t *user, int channelId) {
+void next(user_t* user, int channelId) {
     struct request_details details;
     details.request = Next;
     details.channel = channelId;
@@ -194,12 +187,12 @@ void next(user_t *user, int channelId) {
     fflush(stdout);
 }
 
-void send_message(int channel, user_t* user, char *message) {
-    int length = (int) strlen(message);
+void send_message(int channel, user_t* user, char* message) {
+    int length = (int)strlen(message);
     char buffer[MESSAGE_SIZE];
 
-    for (int i = 0; i < length; i+= MESSAGE_SIZE) {
-        snprintf(buffer, MESSAGE_SIZE, "%s", message+i);
+    for (int i = 0; i < length; i += MESSAGE_SIZE) {
+        snprintf(buffer, MESSAGE_SIZE, "%s", message + i);
         struct request_details details;
         details.request = Send;
         details.channel = channel;
@@ -209,14 +202,13 @@ void send_message(int channel, user_t* user, char *message) {
     }
 }
 
-
 void livefeed(int channelId, user_t* user) {
     struct request_details details;
     details.channel = channelId;
     details.request = Livefeed;
     details.data_size = 0;
 
-    int code = request(user, details , NULL);
+    int code = request(user, details, NULL);
 
     if (code == 0) {
         if (channelId == -1) {
@@ -233,21 +225,19 @@ void livefeed(int channelId, user_t* user) {
 }
 
 void stop(user_t* user) {
-    struct request_details details = {.request = Stop, .data_size = 0 };
+    struct request_details details = {.request = Stop, .data_size = 0};
     request(user, details, NULL);
 }
-
 
 // ============================================================================== //
 //                                 THREADED REQUESTS                              //
 //                             Handles next and livefeed                          //
 // ============================================================================== //
 
-
 /*
  * params:
  * user: User details
- * 
+ *
  * Worker that reads through the job queue and completes the jobs
  */
 void request_que_worker(user_t* user) {
@@ -255,7 +245,7 @@ void request_que_worker(user_t* user) {
     list_t* job_list = &user->list;
 
     int channelId, request;
-    while(exiting == 0) {
+    while (exiting == 0) {
         sem_wait(job_sem);
         if (job_list->head == NULL) {
             printf("DEBUG job isn't on head\n");
@@ -278,12 +268,12 @@ void request_que_worker(user_t* user) {
     }
 }
 
-/* 
+/*
  * Params:
  * user: User details
  * channel: channel the request goes to
  * request: request id, either next or livefeed
- * 
+ *
  * takes the details of the request and addeds it to the end of the job que
  */
 void que_request(user_t* user, int channel, int request) {
@@ -302,13 +292,9 @@ void que_request(user_t* user, int channel, int request) {
     sem_post(&user->sem);
 }
 
-void que_next(user_t* user, int channel) {
-    que_request(user, channel, Next);
-}
+void que_next(user_t* user, int channel) { que_request(user, channel, Next); }
 
-void que_livefeed(user_t* user, int channel) {
-    que_request(user, channel, Livefeed);
-}
+void que_livefeed(user_t* user, int channel) { que_request(user, channel, Livefeed); }
 
 void request_que_init(user_t* user) {
     sem_init(&user->sem, 0, 0);
@@ -317,12 +303,12 @@ void request_que_init(user_t* user) {
     user->list.tail = NULL;
 
     pthread_t thread;
-    pthread_create(&thread, NULL, (void *(*)(void *)) request_que_worker, user);
+    pthread_create(&thread, NULL, (void* (*)(void*))request_que_worker, user);
 }
 
 void livefeed_listen(user_t* user) {
     char buffer[MESSAGE_SIZE + 5];
-    while(exiting == 0) {
+    while (exiting == 0) {
         recv(user->connectionFd, buffer, MESSAGE_SIZE + 5, MSG_PEEK);
         if (strcmp(buffer, "CLOSE") == 0) {
             quit(user);
@@ -340,7 +326,7 @@ void livefeed_listen(user_t* user) {
 
 void livefeed_init(user_t* user) {
     pthread_t thread;
-    pthread_create(&thread, NULL, (void * (*) (void * )) livefeed_listen, user);
+    pthread_create(&thread, NULL, (void* (*)(void*))livefeed_listen, user);
 }
 
 // ======================================================================== //
@@ -348,9 +334,7 @@ void livefeed_init(user_t* user) {
 //                             Handles intput
 // ======================================================================== //
 
-void handle_interrupt(int sig) {
-    exiting = 1;
-}
+void handle_interrupt(int sig) { exiting = 1; }
 
 void quit(user_t* user) {
     printf("\rBye         \n");
@@ -365,7 +349,7 @@ char* get_inputs() {
     size_t buff_size = 100;
     char* buffer = malloc(100 * sizeof(char));
     while (1) {
-        c = (char) getchar();
+        c = (char)getchar();
         if (position >= buff_size) {
             buff_size += 100;
             buffer = realloc(buffer, buff_size * sizeof(char));
@@ -381,18 +365,17 @@ char* get_inputs() {
 }
 
 int get_channel_id(char* param) {
-    char *err;
-    int channelId = (int) strtod(param, &err);
+    char* err;
+    int channelId = (int)strtod(param, &err);
     if (*err != '\0' || channelId < 0 || channelId > 255) {
         printf("Invalid channel: %s\n", param);
         return -1;
-    }
-    else {
+    } else {
         return channelId;
     }
 }
 
-void user_input(user_t *user) {
+void user_input(user_t* user) {
     request_que_init(user);
     char* com;
 
@@ -408,78 +391,64 @@ void user_input(user_t *user) {
         if (exiting) quit(user);
 
         if (strcasecmp(com, "SUB") == 0) {
-            char *param = strtok(NULL, " ");
+            char* param = strtok(NULL, " ");
             if (param == NULL) {
                 printf("SUB requires a channel id to connect to \n");
-            }
-            else {
+            } else {
                 int id = get_channel_id(param);
                 if (id != -1) {
                     subscribe(user, id);
                 }
             }
-        }
-        else if (strcasecmp(com, "UNSUB") == 0) {
-            char *param = strtok(NULL, " ");
+        } else if (strcasecmp(com, "UNSUB") == 0) {
+            char* param = strtok(NULL, " ");
             if (param == NULL) {
                 printf("UNSUB requires a channelid to connect to \n");
-            }
-            else {
+            } else {
                 int id = get_channel_id(param);
                 if (id != -1) {
                     unsubscribe(user, id);
                 }
             }
-        }
-        else if (strcasecmp(com, "CHANNELS") == 0) {
+        } else if (strcasecmp(com, "CHANNELS") == 0) {
             list(user);
-        }
-        else if (strcasecmp(com, "NEXT") == 0) {
-            char *param = strtok(NULL, " ");
+        } else if (strcasecmp(com, "NEXT") == 0) {
+            char* param = strtok(NULL, " ");
             if (param == NULL) {
-                que_next(user, -1); // change id to something ele for next without id
-            }
-            else {
+                que_next(user, -1);  // change id to something ele for next without id
+            } else {
                 int id = get_channel_id(param);
                 if (id != -1) {
                     que_next(user, id);
                 }
             }
-        }
-        else if (strcasecmp(com, "LIVEFEED") == 0) {
-            char *param = strtok(NULL, " ");
+        } else if (strcasecmp(com, "LIVEFEED") == 0) {
+            char* param = strtok(NULL, " ");
             if (param == NULL) {
                 que_livefeed(user, -1);
-            }
-            else {
+            } else {
                 int id = get_channel_id(param);
                 if (id != -1) {
                     que_livefeed(user, id);
                 }
             }
-        }
-        else if (strcasecmp(com, "SEND") == 0) {
+        } else if (strcasecmp(com, "SEND") == 0) {
             char* channel = strtok(NULL, " ");
             char* message = strtok(NULL, "");
 
             if (channel == NULL || message == NULL) {
                 printf("Invalid arguments\n");
-            }
-            else {
+            } else {
                 int id = get_channel_id(channel);
                 if (id != -1) send_message(id, user, message);
             }
-        }
-        else if (strcasecmp(com, "LIST") == 0) {
+        } else if (strcasecmp(com, "LIST") == 0) {
             list(user);
-        }
-        else if (strcasecmp(com, "BYE") == 0) {
+        } else if (strcasecmp(com, "BYE") == 0) {
             quit(user);
-        }
-        else if (strcasecmp(com, "STOP") == 0) {
+        } else if (strcasecmp(com, "STOP") == 0) {
             stop(user);
-        }
-        else {
+        } else {
             printf("Not valid command\n");
         }
 
@@ -487,11 +456,10 @@ void user_input(user_t *user) {
     }
 }
 
-
 #ifndef CLIENT_MAIN
 #define CLIENT_MAIN
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     signal(SIGINT, handle_interrupt);
 
     if (argc != 3) {
@@ -500,7 +468,7 @@ int main(int argc, char **argv) {
     }
 
     int port = atoi(argv[2]);
-    char *serverName = argv[1];
+    char* serverName = argv[1];
     user_t user;
 
     user_init(&user);
